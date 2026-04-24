@@ -110,9 +110,13 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
     let allReviews = [];
     let pageToken = null;
 
+    // Clean IDs (ensure they don't have double prefixes)
+    const cleanAccountId = googleAccountId.replace('accounts/', '');
+    const cleanLocationId = googleLocationId.replace('locations/', '');
+
     do {
         const res = await auth.request({
-            url: `https://mybusiness.googleapis.com/v4/accounts/${googleAccountId}/locations/${googleLocationId}/reviews`,
+            url: `https://mybusiness.googleapis.com/v4/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
             method: 'GET',
             params: pageToken ? { pageToken } : {}
         });
