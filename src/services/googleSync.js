@@ -1,0 +1,235 @@
+import { google } from 'googleapis';
+import { supabase } from '../db/index.js';
+import { draftReply } from './aiManager.js';
+
+const getOAuth2Client = (tokens, userId) => {
+    const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI
+    );
+    
+    oauth2Client.setCredentials({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expiry_date: Number(tokens.expiry_date)
+    });
+
+    // Automatically save refreshed tokens to the database
+    oauth2Client.on('tokens', async (newTokens) => {
+        console.log(`🔄 Refreshing Google tokens for user ${userId}...`);
+        const updateData = {
+            access_token: newTokens.access_token,
+            expiry_date: newTokens.expiry_date.toString()
+        };
+        if (newTokens.refresh_token) {
+            updateData.refresh_token = newTokens.refresh_token;
+        }
+
+        await supabase
+            .from('oauth_tokens')
+            .update(updateData)
+            .eq('user_id', userId);
+    });
+
+    return oauth2Client;
+};
+
+/**
+ * Lists all Google Business accounts authorized for a user.
+ */
+export async function listGoogleAccounts(userId) {
+    const { data: tokens, error } = await supabase
+        .from('oauth_tokens')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+    if (error || !tokens) throw new Error('User not connected to Google');
+
+    const auth = getOAuth2Client(tokens, userId);
+    
+    // Direct request to the Business Information API
+    try {
+        const res = await auth.request({
+            url: 'https://mybusinessbusinessinformation.googleapis.com/v1/accounts',
+            method: 'GET'
+        });
+        
+        return res.data.accounts || [];
+    } catch (err) {
+        console.error('❌ Google API Error (Accounts):', err.response?.data || err.message);
+        throw err;
+    }
+}
+
+/**
+ * Lists all locations for a specific Google account.
+ */
+export async function listGoogleLocations(accountId, userId) {
+    const { data: tokens, error } = await supabase
+        .from('oauth_tokens')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+    if (error || !tokens) throw new Error('User not connected to Google');
+
+    const auth = getOAuth2Client(tokens, userId);
+
+    // Direct request to the Business Information API for locations
+    try {
+        const res = await auth.request({
+            url: `https://mybusinessbusinessinformation.googleapis.com/v1/${accountId}/locations`,
+            params: {
+                readMask: 'name,title,storeCode,regularHours,metadata,categories'
+            },
+            method: 'GET'
+        });
+        return res.data.locations || [];
+    } catch (err) {
+        console.error(`❌ Google API Error (Locations) for account ${accountId}:`, err.response?.data || err.message);
+        throw err;
+    }
+}
+
+/**
+ * Syncs reviews from a Google location into the database.
+ */
+export async function syncGoogleReviews(userId, googleAccountId, googleLocationId) {
+    const { data: tokens } = await supabase
+        .from('oauth_tokens')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+    const auth = getOAuth2Client(tokens, userId);
+    
+    // Note: The reviews API is often in v4 or v1 depending on the specific endpoint
+    // Testing with the mybusinessreviews (v4) approach which is commonly supported
+    let allReviews = [];
+    let pageToken = null;
+
+    do {
+        const res = await auth.request({
+            url: `https://mybusiness.googleapis.com/v4/accounts/${googleAccountId}/locations/${googleLocationId}/reviews`,
+            method: 'GET',
+            params: pageToken ? { pageToken } : {}
+        });
+
+        const pageReviews = res.data.reviews || [];
+        allReviews = [...allReviews, ...pageReviews];
+        pageToken = res.data.nextPageToken;
+        
+        console.log(`📥 Fetched ${pageReviews.length} reviews from Google page...`);
+    } while (pageToken);
+
+    console.log(`✅ Total reviews fetched: ${allReviews.length}`);
+
+    // Map internal location_id & populate numeric IDs
+    let { data: loc } = await supabase
+        .from('locations')
+        .update({ 
+            google_account_id: googleAccountId, 
+            gbp_location_id: googleLocationId 
+        })
+        .match({ google_location_id: googleLocationId })
+        .select('id, tone_preference, business_name')
+        .single();
+    
+    // Fallback: Try matching on Place ID (the 0x... format) if numeric match fails
+    if (!loc) {
+        const { data: locFallback } = await supabase
+            .from('locations')
+            .update({ 
+                google_account_id: googleAccountId, 
+                gbp_location_id: googleLocationId 
+            })
+            .ilike('google_location_id', '0x%') // Simple check for Place ID format
+            .select('id, tone_preference, business_name')
+            .limit(1)
+            .single();
+        
+        loc = locFallback;
+    }
+
+    if (!loc) throw new Error('Location not found in local database');
+
+    for (const rev of allReviews) {
+        const { reviewId, reviewer, starRating, comment, createTime } = rev;
+        
+        // 1. Check if it already exists
+        const { data: existing } = await supabase
+            .from('reviews')
+            .select('id')
+            .eq('google_review_id', reviewId)
+            .single();
+
+        if (existing) continue;
+
+        // 2. Draft AI response
+        const ratingNum = { 'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 5 }[starRating] || 5;
+        const aiDraft = await draftReply(comment || '', ratingNum, loc.tone_preference, loc.business_name);
+
+        // 3. Insert fresh review
+        await supabase
+            .from('reviews')
+            .insert([{
+                location_id: loc.id,
+                google_review_id: reviewId,
+                reviewer_name: reviewer.displayName,
+                rating: ratingNum,
+                comment: comment || '',
+                review_date: createTime,
+                drafted_reply: aiDraft,
+                status: 'PENDING'
+            }]);
+    }
+
+    return reviews.length;
+}
+
+/**
+ * Posts a reply to a Google review via the My Business API.
+ */
+export async function postReviewReply(userId, internalReviewId, comment) {
+    // 1. Get the review and its associated numeric IDs
+    const { data: rev, error: revError } = await supabase
+        .from('reviews')
+        .select('google_review_id, locations(google_account_id, gbp_location_id)')
+        .eq('id', internalReviewId)
+        .single();
+
+    if (revError || !rev) throw new Error('Review not found in local database');
+    
+    const accountId = rev.locations.google_account_id;
+    const locationId = rev.locations.gbp_location_id;
+    const reviewId = rev.google_review_id;
+
+    if (!accountId || !locationId) {
+        throw new Error('Location is not fully synced with Google (Numeric IDs missing). Please run a sync first.');
+    }
+
+    // 2. Get user tokens
+    const { data: tokens } = await supabase
+        .from('oauth_tokens')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+    if (!tokens) throw new Error('User not connected to Google');
+
+    const auth = getOAuth2Client(tokens, userId);
+
+    // 3. Send the reply to Google
+    console.log(`📤 Posting reply to Google for review ${reviewId}...`);
+    const res = await auth.request({
+        url: `https://mybusiness.googleapis.com/v4/accounts/${accountId}/locations/${locationId}/reviews/${reviewId}/reply`,
+        method: 'PUT',
+        data: {
+            comment: comment
+        }
+    });
+
+    return res.data;
+}
