@@ -2,6 +2,13 @@ import { google } from 'googleapis';
 import { supabase } from '../db/index.js';
 import { draftReply } from './aiManager.js';
 
+// Simple in-memory cache to prevent Google Quota (429) exhaustion
+const cache = {
+    accounts: new Map(), // userId -> { data, expiry }
+    locations: new Map() // accountId -> { data, expiry }
+};
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 const getOAuth2Client = (tokens, userId) => {
     const oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
@@ -39,6 +46,13 @@ const getOAuth2Client = (tokens, userId) => {
  * Lists all Google Business accounts authorized for a user.
  */
 export async function listGoogleAccounts(userId) {
+    // Check Cache
+    const cached = cache.accounts.get(userId);
+    if (cached && Date.now() < cached.expiry) {
+        console.log(`📡 Using cached Google accounts for user ${userId}`);
+        return cached.data;
+    }
+
     const { data: tokens, error } = await supabase
         .from('oauth_tokens')
         .select('*')
@@ -56,7 +70,9 @@ export async function listGoogleAccounts(userId) {
             method: 'GET'
         });
         
-        return res.data.accounts || [];
+        const accounts = res.data.accounts || [];
+        cache.accounts.set(userId, { data: accounts, expiry: Date.now() + CACHE_DURATION });
+        return accounts;
     } catch (err) {
         console.error('❌ Google API Error (Accounts):', err.response?.data || err.message);
         throw err;
@@ -67,6 +83,14 @@ export async function listGoogleAccounts(userId) {
  * Lists all locations for a specific Google account.
  */
 export async function listGoogleLocations(accountId, userId) {
+    // Check Cache
+    const cacheKey = `${userId}-${accountId}`;
+    const cached = cache.locations.get(cacheKey);
+    if (cached && Date.now() < cached.expiry) {
+        console.log(`📡 Using cached Google locations for account ${accountId}`);
+        return cached.data;
+    }
+
     const { data: tokens, error } = await supabase
         .from('oauth_tokens')
         .select('*')
@@ -86,7 +110,9 @@ export async function listGoogleLocations(accountId, userId) {
             },
             method: 'GET'
         });
-        return res.data.locations || [];
+        const locations = res.data.locations || [];
+        cache.locations.set(cacheKey, { data: locations, expiry: Date.now() + CACHE_DURATION });
+        return locations;
     } catch (err) {
         console.error(`❌ Google API Error (Locations) for account ${accountId}:`, err.response?.data || err.message);
         throw err;
