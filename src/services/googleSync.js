@@ -137,23 +137,32 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
         .select('id, tone_preference, business_name')
         .single();
     
-    // Fallback: Try matching on Place ID (the 0x... format) if numeric match fails
     if (!loc) {
-        const { data: locFallback } = await supabase
-            .from('locations')
-            .update({ 
-                google_account_id: googleAccountId, 
-                gbp_location_id: googleLocationId 
-            })
-            .ilike('google_location_id', '0x%') // Simple check for Place ID format
-            .select('id, tone_preference, business_name')
-            .limit(1)
-            .single();
+        console.log(`🆕 Creating new location entry for ${googleLocationId}...`);
         
-        loc = locFallback;
-    }
+        // Fetch location details from Google to get the business name
+        const locInfo = await auth.request({
+            url: `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${googleAccountId}/locations/${googleLocationId}`,
+            method: 'GET',
+            params: { readMask: 'title' }
+        });
 
-    if (!loc) throw new Error('Location not found in local database');
+        const { data: newLoc, error: insertError } = await supabase
+            .from('locations')
+            .insert([{ 
+                user_id: userId,
+                google_location_id: googleLocationId, 
+                business_name: locInfo.data.title || 'My Business',
+                google_account_id: googleAccountId,
+                gbp_location_id: googleLocationId,
+                tone_preference: 'Professional and friendly'
+            }])
+            .select('id, tone_preference, business_name')
+            .single();
+            
+        if (insertError) throw insertError;
+        loc = newLoc;
+    }
 
     for (const rev of allReviews) {
         const { reviewId, reviewer, starRating, comment, createTime } = rev;
@@ -186,7 +195,7 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
             }]);
     }
 
-    return reviews.length;
+    return allReviews.length;
 }
 
 /**

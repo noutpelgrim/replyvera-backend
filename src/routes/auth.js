@@ -88,7 +88,11 @@ router.get('/google/callback', async (req, res) => {
             if (updateError) throw updateError;
         }
 
-        res.redirect('http://localhost:5173/dashboard');
+        const dashboardUrl = process.env.NODE_ENV === 'production' 
+            ? 'https://replyvera-dashboard.vercel.app/dashboard' 
+            : 'http://localhost:5173/dashboard';
+
+        res.redirect(dashboardUrl);
     } catch (error) {
         console.error('Error during Google Auth Callback:', error);
         res.status(500).send('Authentication failed');
