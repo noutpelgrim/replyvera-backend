@@ -130,15 +130,41 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
         .single();
 
     const auth = getOAuth2Client(tokens, userId);
+
+    // Map internal location_id & populate numeric IDs (UP FRONT)
+    let { data: loc } = await supabase
+        .from('locations')
+        .update({ 
+            google_account_id: googleAccountId, 
+            gbp_location_id: googleLocationId 
+        })
+        .match({ google_location_id: googleLocationId })
+        .select('id, tone_preference, business_name, google_account_id')
+        .single();
     
     // Note: The reviews API is often in v4 or v1 depending on the specific endpoint
     // Testing with the mybusinessreviews (v4) approach which is commonly supported
     let allReviews = [];
     let pageToken = null;
 
-    // Clean IDs (ensure they don't have double prefixes)
-    const cleanAccountId = googleAccountId.replace('accounts/', '');
+    // Clean IDs
     const cleanLocationId = googleLocationId.replace('locations/', '');
+    let cleanAccountId = googleAccountId ? googleAccountId.replace('accounts/', '') : null;
+
+    // If accountId is missing, try to find it from the enrolled location
+    if (!cleanAccountId && loc?.google_account_id) {
+        cleanAccountId = loc.google_account_id.replace('accounts/', '');
+    }
+
+    if (!cleanAccountId) {
+        console.log("🕵️ Account ID missing, attempting to resolve from Google...");
+        const accounts = await listGoogleAccounts(userId);
+        if (accounts.length > 0) {
+            cleanAccountId = accounts[0].name.replace('accounts/', '');
+        } else {
+            throw new Error('Could not resolve Google Account ID. Please try again in 15 mins.');
+        }
+    }
 
     do {
         const res = await auth.request({
@@ -156,16 +182,6 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
 
     console.log(`✅ Total reviews fetched: ${allReviews.length}`);
 
-    // Map internal location_id & populate numeric IDs
-    let { data: loc } = await supabase
-        .from('locations')
-        .update({ 
-            google_account_id: googleAccountId, 
-            gbp_location_id: googleLocationId 
-        })
-        .match({ google_location_id: googleLocationId })
-        .select('id, tone_preference, business_name')
-        .single();
     
     if (!loc) {
         console.log(`🆕 Creating new location entry for ${googleLocationId}...`);
