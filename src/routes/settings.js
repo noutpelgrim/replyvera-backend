@@ -3,13 +3,19 @@ import { supabase } from '../db/index.js';
 
 const router = express.Router();
 
-// GET settings for a location (Mocked to first location for now)
+// GET settings for a location
 router.get('/', async (req, res) => {
+    const { email } = req.query;
     try {
-        const { data, error } = await supabase
+        let query = supabase
             .from('locations')
-            .select('*')
-            .limit(1);
+            .select('*, users!inner(email)');
+
+        if (email) {
+            query = query.eq('users.email', email);
+        }
+
+        const { data, error } = await query.limit(1);
             
         if (error) throw error;
         res.json(data[0]);

@@ -6,14 +6,21 @@ import { postReviewReply } from '../services/googleSync.js';
 
 const router = express.Router();
 
-// GET all reviews for a business (Mocked to first business for now)
+// GET all reviews for a business
 router.get('/', async (req, res) => {
+    const { email } = req.query;
     try {
-        const { data, error } = await supabase
+        let query = supabase
             .from('reviews')
-            .select('*, locations(business_name)')
+            .select('*, locations!inner(user_id, business_name, users!inner(email))')
             .order('review_date', { ascending: false, nullsFirst: false })
             .limit(50);
+
+        if (email) {
+            query = query.eq('locations.users.email', email);
+        }
+
+        const { data, error } = await query;
             
         if (error) throw error;
         res.json(data);
