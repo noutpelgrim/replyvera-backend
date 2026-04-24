@@ -16,7 +16,13 @@ import analyticsRoutes from './routes/analytics.js';
 dotenv.config();
 
 const app = express();
-app.use(cors()); // Allow Dashboard (on different port) to talk to API
+
+// Enable CORS for your Vercel Dashboard
+app.use(cors({
+    origin: ['https://replyvera-dashboard.vercel.app', 'http://localhost:5173'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Main Auth Routes
