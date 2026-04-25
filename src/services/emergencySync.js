@@ -88,7 +88,14 @@ export async function syncGoogleReviews(userId) {
             console.log(`✅ Success with path: ${url.split('/')[2]}`);
         } catch (err) {
             lastErr = err;
-            console.log(`⚠️ Path failed: ${url.split('/')[2]} (${err.response?.status || err.message})`);
+            const status = err.response?.status;
+            const message = err.response?.data?.error?.message || err.message;
+            console.log(`⚠️ Path failed: ${url.split('/')[2]} (Status: ${status}, Msg: ${message})`);
+            
+            // If it's a "Not Enabled" error, we capture the exact API name for the user
+            if (message.includes('not been used in project') || message.includes('disabled')) {
+                throw new Error(`CRITICAL: Google API not enabled. Please enable the "My Business Reviews API" in your Google Console. (${message})`);
+            }
         }
     }
 
