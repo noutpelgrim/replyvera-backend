@@ -147,20 +147,21 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
     let allReviews = [];
     let pageToken = null;
 
-    // Clean IDs
-    const cleanLocationId = googleLocationId.replace('locations/', '');
-    let cleanAccountId = googleAccountId ? googleAccountId.replace('accounts/', '') : null;
+    // Search and Destroy: Strip any and all 'accounts/' or 'locations/' prefixes
+    // This prevents the "Hall of Mirrors" URL bug seen in the logs.
+    const cleanLocationId = googleLocationId.toString().replace(/locations\//g, '');
+    let cleanAccountId = googleAccountId ? googleAccountId.toString().replace(/accounts\//g, '') : null;
 
     // If accountId is missing, try to find it from the enrolled location
     if (!cleanAccountId && loc?.google_account_id) {
-        cleanAccountId = loc.google_account_id.replace('accounts/', '');
+        cleanAccountId = loc.google_account_id.toString().replace(/accounts\//g, '');
     }
 
     if (!cleanAccountId) {
         console.log("🕵️ Account ID missing, attempting to resolve from Google...");
         const accounts = await listGoogleAccounts(userId);
         if (accounts.length > 0) {
-            cleanAccountId = accounts[0].name.replace('accounts/', '');
+            cleanAccountId = accounts[0].name.toString().replace(/accounts\//g, '');
         } else {
             throw new Error('Could not resolve Google Account ID. Please try again in 15 mins.');
         }
