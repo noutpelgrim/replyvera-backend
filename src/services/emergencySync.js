@@ -65,12 +65,13 @@ export async function syncGoogleReviews(userId) {
         loc = newLoc;
     }
 
-    // 3. SYNC: Try multiple API paths
+    // 3. SYNC: Try multiple API paths (Modern v1, Legacy v4, and Business Info v1)
     let allReviews = [];
     let pageToken = null;
     const endpoints = [
         `https://mybusinessreviews.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
-        `https://mybusiness.googleapis.com/v4/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`
+        `https://mybusiness.googleapis.com/v4/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
+        `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`
     ];
 
     let success = false;
