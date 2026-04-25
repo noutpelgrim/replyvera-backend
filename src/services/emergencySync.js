@@ -16,39 +16,47 @@ export async function syncGoogleReviews(userId) {
     if (!tokens) throw new Error('User not connected to Google');
     const auth = getOAuth2Client(tokens, userId);
 
-    // 1. DISCOVERY: Ignore stale IDs and fetch fresh ones
-    console.log(`📡 Emergency Refresh: Identifying fresh Google IDs for user ${userId}...`);
-    const allAccounts = await listGoogleAccounts(userId);
-    if (allAccounts.length === 0) throw new Error('No Google Business accounts found.');
-    
-    const cleanAccountId = allAccounts[0].name.replace('accounts/', '');
-    const locs = await listGoogleLocations(allAccounts[0].name, userId);
-    if (locs.length === 0) throw new Error('No locations found in this Google account.');
-
-    // We assume the first location for now (Mudhouse)
-    const cleanLocationId = locs[0].name.replace('locations/', '');
-    const businessName = locs[0].title;
-    console.log(`🎯 Target Identified: ${businessName} (Acc: ${cleanAccountId}, Loc: ${cleanLocationId})`);
-
-    // 2. Fetch or Create local location record
+    // 1. DISCOVERY: Check local DB first to avoid Quota hammering
     let { data: loc } = await supabase
         .from('locations')
         .select('*')
-        .eq('google_location_id', cleanLocationId)
-        .single();
-    
-    if (!loc) {
-        console.log(`🆕 Auto-enrolling ${businessName}...`);
+        .eq('user_id', userId)
+        .not('google_account_id', 'is', null)
+        .not('google_location_id', 'is', null)
+        .limit(1)
+        .maybeSingle();
+
+    let cleanAccountId, cleanLocationId, businessName;
+
+    if (loc) {
+        console.log(`🧠 Using MEMORIZED IDs for ${loc.business_name} (Saves Quota!)`);
+        cleanAccountId = loc.google_account_id;
+        cleanLocationId = loc.google_location_id;
+        businessName = loc.business_name;
+    } else {
+        console.log(`📡 Emergency Refresh: Identifying fresh Google IDs for user ${userId}...`);
+        const allAccounts = await listGoogleAccounts(userId);
+        if (allAccounts.length === 0) throw new Error('No Google Business accounts found.');
+        
+        cleanAccountId = allAccounts[0].name.replace('accounts/', '');
+        const locs = await listGoogleLocations(allAccounts[0].name, userId);
+        if (locs.length === 0) throw new Error('No locations found in this Google account.');
+
+        cleanLocationId = locs[0].name.replace('locations/', '');
+        businessName = locs[0].title;
+        console.log(`🎯 Target Discovered: ${businessName} (Acc: ${cleanAccountId}, Loc: ${cleanLocationId})`);
+        
+        // Auto-enroll to save for next time
         const { data: newLoc } = await supabase
             .from('locations')
-            .insert([{
+            .upsert([{
                 user_id: userId,
                 google_location_id: cleanLocationId,
                 gbp_location_id: cleanLocationId,
                 google_account_id: cleanAccountId,
                 business_name: businessName,
                 tone_preference: 'Professional'
-            }])
+            }], { onConflict: 'google_location_id' })
             .select('*')
             .single();
         loc = newLoc;
