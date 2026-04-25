@@ -166,9 +166,9 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
     }
 
     do {
-        // MODERN URL: mybusinessreviews.googleapis.com/v1
+        // Reverting to the most reliable classic endpoint (v4)
         const res = await auth.request({
-            url: `https://mybusinessreviews.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
+            url: `https://mybusiness.googleapis.com/v4/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
             method: 'GET',
             params: pageToken ? { pageToken } : {}
         });
