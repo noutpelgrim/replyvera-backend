@@ -1,3 +1,8 @@
+import { supabase } from '../db/index.js';
+import { getOAuth2Client } from './googleAuth.js';
+import { listGoogleAccounts, listGoogleLocations } from './googleSync.js';
+import { draftReply } from './aiManager.js';
+
 /**
  * Syncs reviews from a Google location into the database.
  * This version uses an "Emergency Refresh" strategy to re-discover IDs directly from Google.

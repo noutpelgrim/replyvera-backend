@@ -1,55 +1,23 @@
-import { google } from 'googleapis';
+import { getOAuth2Client } from './googleAuth.js';
 import { supabase } from '../db/index.js';
+import axios from 'axios';
 import { draftReply } from './aiManager.js';
 
-// Simple in-memory cache to prevent Google Quota (429) exhaustion
 const cache = {
-    accounts: new Map(), // userId -> { data, expiry }
-    locations: new Map() // accountId -> { data, expiry }
+    accounts: new Map(),
+    locations: new Map()
 };
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-const getOAuth2Client = (tokens, userId) => {
-    const oauth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.G_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI
-    );
-    
-    oauth2Client.setCredentials({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expiry_date: Number(tokens.expiry_date)
-    });
-
-    // Automatically save refreshed tokens to the database
-    oauth2Client.on('tokens', async (newTokens) => {
-        console.log(`🔄 Refreshing Google tokens for user ${userId}...`);
-        const updateData = {
-            access_token: newTokens.access_token,
-            expiry_date: newTokens.expiry_date.toString()
-        };
-        if (newTokens.refresh_token) {
-            updateData.refresh_token = newTokens.refresh_token;
-        }
-
-        await supabase
-            .from('oauth_tokens')
-            .update(updateData)
-            .eq('user_id', userId);
-    });
-
-    return oauth2Client;
-};
+const CACHE_DURATION = 15 * 60 * 1000; // 15 mins
 
 /**
- * Lists all Google Business accounts authorized for a user.
+ * Lists all Google accounts the user has access to.
  */
 export async function listGoogleAccounts(userId) {
     // Check Cache
     const cached = cache.accounts.get(userId);
     if (cached && Date.now() < cached.expiry) {
-        console.log(`📡 Using cached Google accounts for user ${userId}`);
+        console.log('📡 Using cached Google accounts');
         return cached.data;
     }
 
@@ -83,14 +51,6 @@ export async function listGoogleAccounts(userId) {
  * Lists all locations for a specific Google account.
  */
 export async function listGoogleLocations(accountId, userId) {
-    // Check Cache
-    const cacheKey = `${userId}-${accountId}`;
-    const cached = cache.locations.get(cacheKey);
-    if (cached && Date.now() < cached.expiry) {
-        console.log(`📡 Using cached Google locations for account ${accountId}`);
-        return cached.data;
-    }
-
     const { data: tokens, error } = await supabase
         .from('oauth_tokens')
         .select('*')
@@ -101,7 +61,6 @@ export async function listGoogleLocations(accountId, userId) {
 
     const auth = getOAuth2Client(tokens, userId);
 
-    // Direct request to the Business Information API for locations
     try {
         const res = await auth.request({
             url: `https://mybusinessbusinessinformation.googleapis.com/v1/${accountId}/locations`,
@@ -111,7 +70,6 @@ export async function listGoogleLocations(accountId, userId) {
             method: 'GET'
         });
         const locations = res.data.locations || [];
-        cache.locations.set(cacheKey, { data: locations, expiry: Date.now() + CACHE_DURATION });
         return locations;
     } catch (err) {
         console.error(`❌ Google API Error (Locations) for account ${accountId}:`, err.response?.data || err.message);
@@ -121,241 +79,11 @@ export async function listGoogleLocations(accountId, userId) {
 
 /**
  * Syncs reviews from a Google location into the database.
+ * (Legacy wrapper - now handled by emergencySync)
  */
-export async function syncGoogleReviews(userId) {
-    const { data: tokens } = await supabase
-        .from('oauth_tokens')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-    const auth = getOAuth2Client(tokens, userId);
-
-    // EMERGENCY: Ignore potentially stale IDs and fetch fresh ones directly from Google
-    console.log(`📡 Emergency Refresh: Identifying fresh Google IDs for user ${userId}...`);
-    const allAccounts = await listGoogleAccounts(userId);
-    if (allAccounts.length === 0) throw new Error('No Google Business accounts found for this user.');
-    
-    const cleanAccountId = allAccounts[0].name.replace('accounts/', '');
-    const locs = await listGoogleLocations(allAccounts[0].name, userId);
-    if (locs.length === 0) throw new Error('No locations found in this Google account.');
-
-    const cleanLocationId = locs[0].name.replace('locations/', '');
-    const businessName = locs[0].title;
-    
-    console.log(`🎯 Identified: ${businessName} (Acc: ${cleanAccountId}, Loc: ${cleanLocationId})`);
-    
-    // Note: The modern Google Business Profile Reviews API (v1)
-    let allReviews = [];
-    let pageToken = null;
-
-    // Search and Destroy: Strip any and all 'accounts/' or 'locations/' prefixes
-    const cleanLocationId = googleLocationId.toString().replace(/locations\//g, '');
-    let cleanAccountId = googleAccountId ? googleAccountId.toString().replace(/accounts\//g, '') : null;
-
-    // If accountId is missing, try to find it from the enrolled location
-    if (!cleanAccountId && loc?.google_account_id) {
-        cleanAccountId = loc.google_account_id.toString().replace(/accounts\//g, '');
-    }
-
-    if (!cleanAccountId) {
-        console.log("🕵️ Account ID missing, attempting to resolve from Google...");
-        const accounts = await listGoogleAccounts(userId);
-        if (accounts.length > 0) {
-            cleanAccountId = accounts[0].name.toString().replace(/accounts\//g, '');
-        } else {
-            throw new Error('Could not resolve Google Account ID. Please try again in 15 mins.');
-        }
-    }
-
-    // Triple-Path Sync Strategy
-    // We try all known endpoints until one works (handles account/location differences)
-    const endpoints = [
-        `https://mybusinessreviews.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
-        `https://mybusiness.googleapis.com/v4/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
-        `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`
-    ];
-
-    let success = false;
-    let lastErr = null;
-
-    // FIRST TRY: Direct paths with provided IDs
-    for (const url of endpoints) {
-        if (success) break;
-        try {
-            console.log(`📡 Trying sync path: ${url}`);
-            const res = await auth.request({ url, method: 'GET', params: pageToken ? { pageToken } : {} });
-            const pageReviews = res.data.reviews || [];
-            allReviews = [...allReviews, ...pageReviews];
-            pageToken = res.data.nextPageToken;
-            success = true;
-            console.log(`✅ Success with path: ${url.split('/')[2]}`);
-        } catch (err) {
-            lastErr = err;
-            console.log(`⚠️ Path failed: ${url.split('/')[2]} (${err.response?.status || err.message})`);
-        }
-    }
-
-    // SECOND TRY: "Skeleton Key" Discovery
-    // If we got 404s, let's look for OTHER locations in this account that might be the real review target
-    if (!success && lastErr?.response?.status === 404) {
-        console.log("🕵️ 404 Detected. Attempting 'Skeleton Key' discovery...");
-        try {
-            const allAccounts = await listGoogleAccounts(userId);
-            for (const acc of allAccounts) {
-                const accId = acc.name.replace('accounts/', '');
-                console.log(`🔎 Scanning account ${accId} for review-enabled locations...`);
-                
-                const locs = await listGoogleLocations(acc.name, userId);
-                for (const l of locs) {
-                    const lId = l.name.replace('locations/', '');
-                    if (lId === cleanLocationId) continue; // Skip the one we already tried
-
-                    console.log(`🎯 Testing alternative location: ${l.title} (${lId})`);
-                    try {
-                        const testUrl = `https://mybusinessreviews.googleapis.com/v1/accounts/${accId}/locations/${lId}/reviews`;
-                        const res = await auth.request({ url: testUrl, method: 'GET' });
-                        console.log(`✨ FOUND IT! "${l.title}" has reviews!`);
-                        const pageReviews = res.data.reviews || [];
-                        allReviews = [...allReviews, ...pageReviews];
-                        pageToken = res.data.nextPageToken;
-                        success = true;
-                        
-                        // Update our local DB to use this WORKING ID from now on
-                        await supabase.from('locations').update({ google_location_id: lId }).match({ business_name: l.title });
-                        break;
-                    } catch (e) {
-                        // Keep looking
-                    }
-                }
-                if (success) break;
-            }
-        } catch (discErr) {
-            console.log("❌ Discovery failed:", discErr.message);
-        }
-    }
-
-    if (!success && allReviews.length === 0) {
-        throw lastErr || new Error('All sync paths failed. Please enable Google My Business API and wait 5 mins.');
-    }
-
-    console.log(`✅ Total reviews fetched: ${allReviews.length}`);
-
-    
-    if (!loc) {
-        console.log(`🆕 Creating new location entry for ${googleLocationId}...`);
-        
-        // Fetch location details from Google to get the business name
-        const locInfo = await auth.request({
-            url: `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${googleAccountId}/locations/${googleLocationId}`,
-            method: 'GET',
-            params: { readMask: 'title' }
-        });
-
-        const { data: newLoc, error: insertError } = await supabase
-            .from('locations')
-            .insert([{ 
-                user_id: userId,
-                google_location_id: googleLocationId, 
-                business_name: locInfo.data.title || 'My Business',
-                google_account_id: googleAccountId,
-                gbp_location_id: googleLocationId,
-                tone_preference: 'Professional and friendly'
-            }])
-            .select('id, tone_preference, business_name')
-            .single();
-            
-        if (insertError) throw insertError;
-        loc = newLoc;
-    }
-
-    for (let i = 0; i < allReviews.length; i++) {
-        const rev = allReviews[i];
-        const { reviewId, reviewer, starRating, comment, createTime } = rev;
-        
-        console.log(`🔍 Processing review ${i+1}/${allReviews.length} from ${reviewer.displayName}...`);
-
-        // 1. Check if it already exists
-        const { data: existing } = await supabase
-            .from('reviews')
-            .select('id')
-            .eq('google_review_id', reviewId)
-            .single();
-
-        if (existing) {
-            console.log(`⏩ Already exists, skipping.`);
-            continue;
-        }
-
-        // 2. Draft AI response
-        const ratingNum = { 'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 5 }[starRating] || 5;
-        console.log(`🤖 Drafting AI reply for ${ratingNum}-star review...`);
-        const aiDraft = await draftReply(comment || '', ratingNum, loc.tone_preference, loc.business_name);
-
-        // 3. Insert fresh review
-        const { error: insErr } = await supabase
-            .from('reviews')
-            .insert([{
-                location_id: loc.id,
-                google_review_id: reviewId,
-                reviewer_name: reviewer.displayName,
-                rating: ratingNum,
-                comment: comment || '',
-                review_date: createTime,
-                drafted_reply: aiDraft,
-                status: 'PENDING'
-            }]);
-        
-        if (insErr) {
-            console.error(`❌ Insert failed for review ${reviewId}:`, insErr.message);
-        } else {
-            console.log(`✅ Review from ${reviewer.displayName} saved!`);
-        }
-    }
-
-    return allReviews.length;
-}
-
-/**
- * Posts a reply to a Google review via the My Business API.
- */
-export async function postReviewReply(userId, internalReviewId, comment) {
-    // 1. Get the review and its associated numeric IDs
-    const { data: rev, error: revError } = await supabase
-        .from('reviews')
-        .select('google_review_id, locations(google_account_id, gbp_location_id)')
-        .eq('id', internalReviewId)
-        .single();
-
-    if (revError || !rev) throw new Error('Review not found in local database');
-    
-    const accountId = rev.locations.google_account_id;
-    const locationId = rev.locations.gbp_location_id;
-    const reviewId = rev.google_review_id;
-
-    if (!accountId || !locationId) {
-        throw new Error('Location is not fully synced with Google (Numeric IDs missing). Please run a sync first.');
-    }
-
-    // 2. Get user tokens
-    const { data: tokens } = await supabase
-        .from('oauth_tokens')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-
-    if (!tokens) throw new Error('User not connected to Google');
-
-    const auth = getOAuth2Client(tokens, userId);
-
-    // 3. Send the reply to Google
-    console.log(`📤 Posting reply to Google for review ${reviewId}...`);
-    const res = await auth.request({
-        url: `https://mybusiness.googleapis.com/v4/accounts/${accountId}/locations/${locationId}/reviews/${reviewId}/reply`,
-        method: 'PUT',
-        data: {
-            comment: comment
-        }
-    });
-
-    return res.data;
+export async function syncGoogleReviews(userId, googleAccountId, googleLocationId) {
+    console.log("🚀 syncGoogleReviews legacy called. Delegating to primary sync...");
+    // For now, we still allow the old signature to work by just doing a generic sync
+    const { syncGoogleReviews: emergencySync } = await import('./emergencySync.js');
+    return emergencySync(userId);
 }
