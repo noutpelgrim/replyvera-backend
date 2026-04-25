@@ -210,9 +210,12 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
         loc = newLoc;
     }
 
-    for (const rev of allReviews) {
+    for (let i = 0; i < allReviews.length; i++) {
+        const rev = allReviews[i];
         const { reviewId, reviewer, starRating, comment, createTime } = rev;
         
+        console.log(`🔍 Processing review ${i+1}/${allReviews.length} from ${reviewer.displayName}...`);
+
         // 1. Check if it already exists
         const { data: existing } = await supabase
             .from('reviews')
@@ -220,14 +223,18 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
             .eq('google_review_id', reviewId)
             .single();
 
-        if (existing) continue;
+        if (existing) {
+            console.log(`⏩ Already exists, skipping.`);
+            continue;
+        }
 
         // 2. Draft AI response
         const ratingNum = { 'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 5 }[starRating] || 5;
+        console.log(`🤖 Drafting AI reply for ${ratingNum}-star review...`);
         const aiDraft = await draftReply(comment || '', ratingNum, loc.tone_preference, loc.business_name);
 
         // 3. Insert fresh review
-        await supabase
+        const { error: insErr } = await supabase
             .from('reviews')
             .insert([{
                 location_id: loc.id,
@@ -239,6 +246,12 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
                 drafted_reply: aiDraft,
                 status: 'PENDING'
             }]);
+        
+        if (insErr) {
+            console.error(`❌ Insert failed for review ${reviewId}:`, insErr.message);
+        } else {
+            console.log(`✅ Review from ${reviewer.displayName} saved!`);
+        }
     }
 
     return allReviews.length;
