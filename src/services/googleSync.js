@@ -82,7 +82,28 @@ export async function listGoogleLocations(accountId, userId) {
  */
 export async function syncGoogleReviews(userId, googleAccountId, googleLocationId) {
     console.log("🚀 syncGoogleReviews legacy called. Delegating to primary sync...");
-    // For now, we still allow the old signature to work by just doing a generic sync
     const { syncGoogleReviews: emergencySync } = await import('./emergencySync.js');
     return emergencySync(userId);
+}
+
+/**
+ * Posts a reply to a Google review.
+ * Delegated to googleService.js for actual API logic.
+ */
+export async function postReviewReply(userId, reviewPk, replyText) {
+    const { postReplyToGoogle } = await import('./googleService.js');
+    const { data: rev } = await supabase
+        .from('reviews')
+        .select('google_review_id, locations(google_location_id)')
+        .eq('id', reviewPk)
+        .single();
+    
+    if (!rev) throw new Error('Review not found in local DB');
+    
+    return postReplyToGoogle(
+        userId, 
+        rev.locations.google_location_id, 
+        rev.google_review_id, 
+        replyText
+    );
 }
