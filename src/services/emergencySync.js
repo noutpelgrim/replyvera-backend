@@ -30,23 +30,26 @@ export async function syncGoogleReviews(userId) {
 
     if (loc) {
         console.log(`🧠 Using MEMORIZED IDs for ${loc.business_name} (Saves Quota!)`);
-        cleanAccountId = loc.google_account_id;
-        cleanLocationId = loc.google_location_id;
+        // FORCE SANITIZE: Strip any recursive prefixes found in the DB
+        cleanAccountId = loc.google_account_id.toString().replace(/accounts\//g, '');
+        cleanLocationId = loc.google_location_id.toString().replace(/locations\//g, '');
         businessName = loc.business_name;
     } else {
         console.log(`📡 Emergency Refresh: Identifying fresh Google IDs for user ${userId}...`);
         const allAccounts = await listGoogleAccounts(userId);
         if (allAccounts.length === 0) throw new Error('No Google Business accounts found.');
         
-        cleanAccountId = allAccounts[0].name.replace('accounts/', '');
+        // Use regex global replace to catch any "accounts/accounts/..." errors from Google
+        cleanAccountId = allAccounts[0].name.replace(/accounts\//g, '');
+        
         const locs = await listGoogleLocations(allAccounts[0].name, userId);
         if (locs.length === 0) throw new Error('No locations found in this Google account.');
 
-        cleanLocationId = locs[0].name.replace('locations/', '');
+        cleanLocationId = locs[0].name.replace(/locations\//g, '');
         businessName = locs[0].title;
         console.log(`🎯 Target Discovered: ${businessName} (Acc: ${cleanAccountId}, Loc: ${cleanLocationId})`);
         
-        // Auto-enroll to save for next time
+        // Auto-enroll to save for next time (CLEAN VERSION)
         const { data: newLoc } = await supabase
             .from('locations')
             .upsert([{
