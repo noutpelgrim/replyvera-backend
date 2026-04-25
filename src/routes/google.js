@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabase } from '../db/index.js';
 import * as googleSync from '../services/googleSync.js';
+import { syncGoogleReviews as emergencySync } from '../services/emergencySync.js';
 
 const router = express.Router();
 
@@ -77,13 +78,12 @@ router.get('/locations/:accountId', async (req, res) => {
  * Sync reviews for a specific location.
  */
 router.post('/sync', async (req, res) => {
-    const { email, accountId, locationId } = req.body;
+    const { email } = req.body;
     try {
         const userId = await getUserId(email);
         
-        // 1. Ensure the location exists in our DB, linked to this Google ID
-        // Note: For now we auto-link or create if business_name is provided
-        const count = await googleSync.syncGoogleReviews(userId, accountId, locationId);
+        // Using Emergency Sync to bypass any ID mismatches
+        const count = await emergencySync(userId);
         
         res.json({ success: true, count });
     } catch (err) {

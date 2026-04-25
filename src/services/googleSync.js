@@ -122,25 +122,27 @@ export async function listGoogleLocations(accountId, userId) {
 /**
  * Syncs reviews from a Google location into the database.
  */
-export async function syncGoogleReviews(userId, googleAccountId, googleLocationId) {
+export async function syncGoogleReviews(userId) {
     const { data: tokens } = await supabase
         .from('oauth_tokens')
         .select('*')
         .eq('user_id', userId)
         .single();
-
     const auth = getOAuth2Client(tokens, userId);
 
-    // Map internal location_id & populate numeric IDs (UP FRONT)
-    let { data: loc } = await supabase
-        .from('locations')
-        .update({ 
-            google_account_id: googleAccountId, 
-            gbp_location_id: googleLocationId 
-        })
-        .match({ google_location_id: googleLocationId })
-        .select('id, tone_preference, business_name, google_account_id')
-        .single();
+    // EMERGENCY: Ignore potentially stale IDs and fetch fresh ones directly from Google
+    console.log(`📡 Emergency Refresh: Identifying fresh Google IDs for user ${userId}...`);
+    const allAccounts = await listGoogleAccounts(userId);
+    if (allAccounts.length === 0) throw new Error('No Google Business accounts found for this user.');
+    
+    const cleanAccountId = allAccounts[0].name.replace('accounts/', '');
+    const locs = await listGoogleLocations(allAccounts[0].name, userId);
+    if (locs.length === 0) throw new Error('No locations found in this Google account.');
+
+    const cleanLocationId = locs[0].name.replace('locations/', '');
+    const businessName = locs[0].title;
+    
+    console.log(`🎯 Identified: ${businessName} (Acc: ${cleanAccountId}, Loc: ${cleanLocationId})`);
     
     // Note: The modern Google Business Profile Reviews API (v1)
     let allReviews = [];
