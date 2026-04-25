@@ -176,6 +176,7 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
     let success = false;
     let lastErr = null;
 
+    // FIRST TRY: Direct paths with provided IDs
     for (const url of endpoints) {
         if (success) break;
         try {
@@ -184,7 +185,7 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
             const pageReviews = res.data.reviews || [];
             allReviews = [...allReviews, ...pageReviews];
             pageToken = res.data.nextPageToken;
-            success = true; // If it reaches here without error, this path works
+            success = true;
             console.log(`✅ Success with path: ${url.split('/')[2]}`);
         } catch (err) {
             lastErr = err;
@@ -192,15 +193,47 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
         }
     }
 
-    if (!success && allReviews.length === 0) {
-        throw lastErr || new Error('All sync paths failed. Please check Google Console APIs.');
+    // SECOND TRY: "Skeleton Key" Discovery
+    // If we got 404s, let's look for OTHER locations in this account that might be the real review target
+    if (!success && lastErr?.response?.status === 404) {
+        console.log("🕵️ 404 Detected. Attempting 'Skeleton Key' discovery...");
+        try {
+            const allAccounts = await listGoogleAccounts(userId);
+            for (const acc of allAccounts) {
+                const accId = acc.name.replace('accounts/', '');
+                console.log(`🔎 Scanning account ${accId} for review-enabled locations...`);
+                
+                const locs = await listGoogleLocations(acc.name, userId);
+                for (const l of locs) {
+                    const lId = l.name.replace('locations/', '');
+                    if (lId === cleanLocationId) continue; // Skip the one we already tried
+
+                    console.log(`🎯 Testing alternative location: ${l.title} (${lId})`);
+                    try {
+                        const testUrl = `https://mybusinessreviews.googleapis.com/v1/accounts/${accId}/locations/${lId}/reviews`;
+                        const res = await auth.request({ url: testUrl, method: 'GET' });
+                        console.log(`✨ FOUND IT! "${l.title}" has reviews!`);
+                        const pageReviews = res.data.reviews || [];
+                        allReviews = [...allReviews, ...pageReviews];
+                        pageToken = res.data.nextPageToken;
+                        success = true;
+                        
+                        // Update our local DB to use this WORKING ID from now on
+                        await supabase.from('locations').update({ google_location_id: lId }).match({ business_name: l.title });
+                        break;
+                    } catch (e) {
+                        // Keep looking
+                    }
+                }
+                if (success) break;
+            }
+        } catch (discErr) {
+            console.log("❌ Discovery failed:", discErr.message);
+        }
     }
 
-    // Continue with processing...
-    while (pageToken) {
-        // Continue with the successful path
-        // (Simplified for MVP: assuming first page success means we stay on that path)
-        break; 
+    if (!success && allReviews.length === 0) {
+        throw lastErr || new Error('All sync paths failed. Please enable Google My Business API and wait 5 mins.');
     }
 
     console.log(`✅ Total reviews fetched: ${allReviews.length}`);
