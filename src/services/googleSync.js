@@ -1,6 +1,5 @@
 import { getOAuth2Client } from './googleAuth.js';
 import { supabase } from '../db/index.js';
-import axios from 'axios';
 import { draftReply } from './aiManager.js';
 
 const cache = {
