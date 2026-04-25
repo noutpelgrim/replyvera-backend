@@ -142,13 +142,11 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
         .select('id, tone_preference, business_name, google_account_id')
         .single();
     
-    // Note: The reviews API is often in v4 or v1 depending on the specific endpoint
-    // Testing with the mybusinessreviews (v4) approach which is commonly supported
+    // Note: The modern Google Business Profile Reviews API (v1)
     let allReviews = [];
     let pageToken = null;
 
     // Search and Destroy: Strip any and all 'accounts/' or 'locations/' prefixes
-    // This prevents the "Hall of Mirrors" URL bug seen in the logs.
     const cleanLocationId = googleLocationId.toString().replace(/locations\//g, '');
     let cleanAccountId = googleAccountId ? googleAccountId.toString().replace(/accounts\//g, '') : null;
 
@@ -168,8 +166,9 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
     }
 
     do {
+        // MODERN URL: mybusinessreviews.googleapis.com/v1
         const res = await auth.request({
-            url: `https://mybusiness.googleapis.com/v4/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
+            url: `https://mybusinessreviews.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
             method: 'GET',
             params: pageToken ? { pageToken } : {}
         });
