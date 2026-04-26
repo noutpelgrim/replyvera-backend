@@ -71,7 +71,8 @@ export async function syncGoogleReviews(userId) {
     const endpoints = [
         `https://mybusinessreviews.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
         `https://mybusiness.googleapis.com/v4/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
-        `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`
+        `https://mybusinessbusinessinformation.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`,
+        `https://mybusiness.googleapis.com/v1/accounts/${cleanAccountId}/locations/${cleanLocationId}/reviews`
     ];
 
     let success = false;
