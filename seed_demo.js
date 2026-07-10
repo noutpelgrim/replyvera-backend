@@ -30,12 +30,12 @@ async function seed() {
   console.log("🌱 Seeding Demo Data for Video Clip...");
 
   try {
-    // 1. Get the first user
-    const { data: users, error: userError } = await supabase.from('users').select('id').limit(1);
-    if (userError || !users.length) throw new Error("No users found to attach reviews to.");
-    const userId = users[0].id;
+    // 1. Get the noutpelgrim@hotmail.com user
+    const { data: user, error: userError } = await supabase.from('users').select('id').eq('email', 'noutpelgrim@hotmail.com').single();
+    if (userError || !user) throw new Error("No users found to attach reviews to.");
+    const userId = user.id;
 
-    // 2. Get the first location
+    // 2. Get the location
     const { data: locations, error: locError } = await supabase.from('locations').select('id').eq('user_id', userId).limit(1);
     if (locError || !locations.length) throw new Error("No locations found.");
     const locationId = locations[0].id;

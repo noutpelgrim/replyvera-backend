@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "start": "node src/app_core.js",
+    "dev": "node --watch src/app_core.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -22,6 +22,8 @@
     "ioredis": "^5.10.1",
     "openai": "^6.33.0",
     "pg": "^8.20.0",
+    "puppeteer-core": "^24.42.0",
+    "puppeteer-real-browser": "^1.4.4",
     "stripe": "^22.0.2"
   }
 }

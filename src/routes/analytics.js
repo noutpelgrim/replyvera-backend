@@ -4,12 +4,18 @@ import { supabase } from '../db/index.js';
 const router = express.Router();
 
 router.get('/', async (req, res) => {
+    const { email } = req.query;
     try {
-        // 1. Fetch reviews for basic stats
-        const { data: reviews, error: revError } = await supabase
+        // 1. Fetch reviews for basic stats (filtered by email if provided)
+        let revQuery = supabase
             .from('reviews')
-            .select('rating, status');
-        
+            .select('rating, status, locations!inner(users!inner(email))');
+
+        if (email) {
+            revQuery = revQuery.eq('locations.users.email', email);
+        }
+
+        const { data: reviews, error: revError } = await revQuery;
         if (revError) throw revError;
 
         // 2. Fetch leads for prospect stats

@@ -8,7 +8,7 @@ dotenv.config();
 export const getOAuth2Client = (tokens = null) => {
     const oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
-        process.env.G_CLIENT_SECRET,
+        process.env.GOOGLE_CLIENT_SECRET || process.env.G_CLIENT_SECRET,
         process.env.GOOGLE_REDIRECT_URI
     );
 
