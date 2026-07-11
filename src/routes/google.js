@@ -22,6 +22,7 @@ router.get('/enrolled', async (req, res) => {
         
         // Map to match Google API shape for frontend consistency
         const formatted = data.map(loc => ({
+            id: loc.id,
             name: `locations/${loc.google_location_id}`,
             title: loc.business_name,
             accountId: loc.google_account_id ? `accounts/${loc.google_account_id}` : null,

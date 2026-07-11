@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
     try {
         let query = supabase
             .from('reviews')
-            .select('*, locations!inner(user_id, business_name, users!inner(email))')
+            .select('*, locations!inner(id, user_id, business_name, google_location_id, users!inner(email))')
             .order('review_date', { ascending: false, nullsFirst: false })
             .limit(50);
 
