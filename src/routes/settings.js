@@ -30,10 +30,23 @@ router.get('/', async (req, res) => {
         }
 
         const loc = data[0];
+        const rawTone = loc.tone_preference || 'Professional';
+        let tone = rawTone;
+        let language = 'auto';
+
+        if (rawTone.includes(' | ')) {
+            const parts = rawTone.split(' | ');
+            tone = parts[0];
+            if (parts[1] && parts[1].startsWith('language:')) {
+                language = parts[1].replace('language:', '');
+            }
+        }
+
         res.json({
             id: loc.id,
             automation_enabled: loc.reply_mode === 'AUTO_POST',
-            reply_tone: loc.tone_preference || 'Professional',
+            reply_tone: tone,
+            reply_language: language,
             min_rating_threshold: 4,
             business_name: loc.business_name
         });
@@ -45,7 +58,7 @@ router.get('/', async (req, res) => {
 // UPDATE settings
 router.patch('/', async (req, res) => {
     const { email } = req.query;
-    const { automation_enabled, reply_tone } = req.body;
+    const { automation_enabled, reply_tone, reply_language } = req.body;
     try {
         if (!email) throw new Error('Email query parameter is required');
 
@@ -60,7 +73,7 @@ router.patch('/', async (req, res) => {
         if (userLocError || !userLoc) throw new Error('Location not found for user');
 
         const reply_mode = automation_enabled ? 'AUTO_POST' : 'MANUAL_APPROVAL';
-        const tone_preference = reply_tone;
+        const tone_preference = `${reply_tone || 'Professional'} | language:${reply_language || 'auto'}`;
 
         const { data, error } = await supabase
             .from('locations')
@@ -74,10 +87,23 @@ router.patch('/', async (req, res) => {
         if (error) throw error;
         
         const loc = data[0];
+        const rawTone = loc.tone_preference || 'Professional';
+        let tone = rawTone;
+        let language = 'auto';
+
+        if (rawTone.includes(' | ')) {
+            const parts = rawTone.split(' | ');
+            tone = parts[0];
+            if (parts[1] && parts[1].startsWith('language:')) {
+                language = parts[1].replace('language:', '');
+            }
+        }
+
         res.json({
             id: loc.id,
             automation_enabled: loc.reply_mode === 'AUTO_POST',
-            reply_tone: loc.tone_preference || 'Professional',
+            reply_tone: tone,
+            reply_language: language,
             min_rating_threshold: 4
         });
     } catch (err) {

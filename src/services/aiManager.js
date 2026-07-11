@@ -24,10 +24,34 @@ export async function draftReply(reviewText, rating, tonePreference, businessNam
             : `Thank you for sharing your ${rating}-star rating. We're always trying to improve our service.`;
     }
 
+    let actualTone = tonePreference || 'professional and polite';
+    let replyLanguage = 'auto';
+
+    if (tonePreference && tonePreference.includes(' | ')) {
+        const parts = tonePreference.split(' | ');
+        actualTone = parts[0];
+        if (parts[1] && parts[1].startsWith('language:')) {
+            replyLanguage = parts[1].replace('language:', '');
+        }
+    }
+
+    let languageInstruction = '';
+    if (replyLanguage === 'en') {
+        languageInstruction = 'You MUST write the reply in English, regardless of the language of the review.';
+    } else if (replyLanguage === 'nl') {
+        languageInstruction = 'You MUST write the reply in Dutch (Nederlands), regardless of the language of the review.';
+    } else if (replyLanguage === 'es') {
+        languageInstruction = 'You MUST write the reply in Spanish (Español), regardless of the language of the review.';
+    } else {
+        languageInstruction = 'You MUST write the reply in the SAME language as the customer\'s review (e.g. if the review is in Dutch, reply in Dutch; if in Spanish, reply in Spanish; if in English, reply in English).';
+    }
+
     try {
         const systemPrompt = `
 You are a professional customer service representative for a business named "${businessName}".
-Your tone should be: ${tonePreference || 'professional and polite'}.
+Your tone should be: ${actualTone}.
+
+${languageInstruction}
 
 You must strictly adhere to these safety constraints:
 1. DO NOT HALLUCINATE: Do not promise refunds, free items, discounts, or special compensation.
