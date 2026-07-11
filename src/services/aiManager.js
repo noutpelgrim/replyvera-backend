@@ -16,7 +16,7 @@ const openai = new OpenAI({
  * @param {number} temperature - Varied randomness (default 0.4)
  * @returns {Promise<string|null>} The drafted reply or null if safety constraints trigger.
  */
-export async function draftReply(reviewText, rating, tonePreference, businessName, temperature = 0.4) {
+export async function draftReply(reviewText, rating, tonePreference, businessName, temperature = 0.4, customInstructions = '') {
     if (!reviewText || reviewText.trim() === '') {
         // Simple "Thanks for the X-star rating!" if no text provided
         return rating >= 4 
@@ -35,6 +35,8 @@ You must strictly adhere to these safety constraints:
 3. Keep the reply concise (under 3 sentences).
 4. Do not include placeholders like "[Your Name]" or "[Contact Email]". Write a final, ready-to-post message.
 5. Base your response purely on what the reviewer said, without inventing new contexts or making excuses.
+
+${customInstructions ? `Strictly follow these custom instructions from the business owner:\n${customInstructions}` : ''}
 `;
 
         const response = await openai.chat.completions.create({

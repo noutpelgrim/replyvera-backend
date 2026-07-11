@@ -1,6 +1,8 @@
 import express from 'express';
 import { supabase } from '../db/index.js';
 
+import { draftReply } from '../services/aiManager.js';
+
 const router = express.Router();
 
 // GET settings for a location
@@ -78,6 +80,30 @@ router.patch('/', async (req, res) => {
             reply_tone: loc.tone_preference || 'Professional',
             min_rating_threshold: 4
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST live AI draft preview
+router.post('/preview', async (req, res) => {
+    const { comment, rating, tone, instructions, businessName } = req.body;
+    try {
+        console.log(`🤖 Generating preview for ${businessName || 'Business'} (Tone: ${tone})...`);
+        const previewText = await draftReply(
+            comment,
+            rating || 5,
+            tone,
+            businessName || 'Your Business',
+            0.4,
+            instructions
+        );
+
+        if (!previewText) {
+            return res.status(500).json({ error: 'AI failed to generate a preview reply.' });
+        }
+
+        res.json({ preview: previewText });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
