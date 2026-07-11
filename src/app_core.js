@@ -19,9 +19,9 @@ dotenv.config();
 
 const app = express();
 
-// Enable CORS for your Vercel Dashboard
+// Enable CORS for frontend dashboard and public landing page
 app.use(cors({
-    origin: ['https://replyvera-dashboard.vercel.app', 'http://localhost:5173'],
+    origin: '*',
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
