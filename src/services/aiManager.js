@@ -43,6 +43,7 @@ export async function draftReply(reviewText, rating, tonePreference, businessNam
         fr: 'French (Français)',
         it: 'Italian (Italiano)',
         pt: 'Portuguese (Português)',
+        zh: 'Mandarin Chinese (中文)',
     };
 
     let languageInstruction = '';
