@@ -35,15 +35,21 @@ export async function draftReply(reviewText, rating, tonePreference, businessNam
         }
     }
 
+    const languageNames = {
+        en: 'English',
+        nl: 'Dutch (Nederlands)',
+        es: 'Spanish (Español)',
+        de: 'German (Deutsch)',
+        fr: 'French (Français)',
+        it: 'Italian (Italiano)',
+        pt: 'Portuguese (Português)',
+    };
+
     let languageInstruction = '';
-    if (replyLanguage === 'en') {
-        languageInstruction = 'You MUST write the reply in English, regardless of the language of the review.';
-    } else if (replyLanguage === 'nl') {
-        languageInstruction = 'You MUST write the reply in Dutch (Nederlands), regardless of the language of the review.';
-    } else if (replyLanguage === 'es') {
-        languageInstruction = 'You MUST write the reply in Spanish (Español), regardless of the language of the review.';
+    if (replyLanguage && replyLanguage !== 'auto' && languageNames[replyLanguage]) {
+        languageInstruction = `You MUST write the reply in ${languageNames[replyLanguage]}, regardless of the language of the review.`;
     } else {
-        languageInstruction = 'You MUST write the reply in the SAME language as the customer\'s review (e.g. if the review is in Dutch, reply in Dutch; if in Spanish, reply in Spanish; if in English, reply in English).';
+        languageInstruction = `You MUST write the reply in the SAME language as the customer's review (e.g. if the review is in Dutch, reply in Dutch; if in Spanish, reply in Spanish; if in English, reply in English).`;
     }
 
     try {
