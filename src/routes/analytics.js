@@ -9,7 +9,7 @@ router.get('/', async (req, res) => {
         // 1. Fetch reviews for basic stats (filtered by email if provided)
         let revQuery = supabase
             .from('reviews')
-            .select('rating, status, locations!inner(users!inner(email))');
+            .select('rating, status, review_date, locations!inner(users!inner(email))');
 
         if (email) {
             revQuery = revQuery.eq('locations.users.email', email);
@@ -47,9 +47,36 @@ router.get('/', async (req, res) => {
         const leadsContacted = leads.filter(l => l.status === 'SENT').length;
 
         // "Time Saved" Estimate: 5 minutes per manual reply vs 10 seconds for AI
-        // We'll estimate time saved based on total reviews synced (assuming all drafted)
         const totalTimeSavedMinutes = totalReviews * 5; 
         const timeSavedHours = (totalTimeSavedMinutes / 60).toFixed(1);
+
+        // 30-Day Review History
+        const historyMap = {};
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+            historyMap[dateStr] = { date: dateStr, total: 0, replies: 0 };
+        }
+
+        reviews.forEach(r => {
+            const dateSource = r.review_date || r.created_at;
+            if (dateSource) {
+                try {
+                    const dateStr = new Date(dateSource).toISOString().split('T')[0];
+                    if (historyMap[dateStr]) {
+                        historyMap[dateStr].total++;
+                        if (r.status === 'PUBLISHED') {
+                            historyMap[dateStr].replies++;
+                        }
+                    }
+                } catch (e) {
+                    // Ignore parsing failures
+                }
+            }
+        });
+
+        const history = Object.values(historyMap).sort((a, b) => a.date.localeCompare(b.date));
 
         res.json({
             totalReviews,
@@ -60,7 +87,8 @@ router.get('/', async (req, res) => {
                 totalLeads,
                 leadsContacted
             },
-            timeSavedHours
+            timeSavedHours,
+            history
         });
     } catch (err) {
         console.error('Analytics failed:', err.message);
