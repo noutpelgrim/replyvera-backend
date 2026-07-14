@@ -127,9 +127,10 @@ router.get('/waitlist', async (req, res) => {
     }
 });
 
-// POST /:id/send - Dispatch the AI outreach email via Resend
+// POST /:id/send - Dispatch the AI outreach email via Resend (with optional customized draft)
 router.post('/:id/send', async (req, res) => {
     const { id } = req.params;
+    const { draft } = req.body;
     try {
         // 1. Fetch lead from database
         const { data: lead, error: getError } = await supabase
@@ -147,12 +148,15 @@ router.post('/:id/send', async (req, res) => {
             return res.status(400).json({ error: 'Lead does not have a valid email address' });
         }
 
-        if (!lead.outreach_draft) {
+        // Use custom edited draft from request if provided, otherwise default to database draft
+        const draftToSend = draft !== undefined ? draft : lead.outreach_draft;
+
+        if (!draftToSend) {
             return res.status(400).json({ error: 'Lead does not have an AI outreach draft' });
         }
 
         // 2. Parse Subject and Body
-        const { subject, body } = parseOutreachDraft(lead.outreach_draft);
+        const { subject, body } = parseOutreachDraft(draftToSend);
 
         // 3. Send email via Resend
         const result = await sendEmail({
@@ -165,10 +169,15 @@ router.post('/:id/send', async (req, res) => {
             return res.status(500).json({ error: result.error || 'Failed to dispatch email' });
         }
 
-        // 4. Update lead status in database
+        // 4. Update lead status and outreach_draft in database (if edited)
+        const updatePayload = { status: 'SENT' };
+        if (draft !== undefined) {
+            updatePayload.outreach_draft = draft;
+        }
+
         const { error: updateError } = await supabase
             .from('leads')
-            .update({ status: 'SENT' })
+            .update(updatePayload)
             .eq('id', id);
 
         if (updateError) {
