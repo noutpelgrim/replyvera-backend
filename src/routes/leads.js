@@ -69,4 +69,63 @@ router.patch('/:id', async (req, res) => {
     }
 });
 
+// POST /waitlist - Capture waitlist signup from landing page
+router.post('/waitlist', async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    try {
+        // Check if email already registered as waitlist
+        const { data: existing, error: checkError } = await supabase
+            .from('leads')
+            .select('id')
+            .eq('email', email)
+            .eq('status', 'WAITLIST')
+            .limit(1);
+
+        if (checkError) throw checkError;
+
+        if (existing && existing.length > 0) {
+            return res.status(200).json({ success: true, message: 'Already registered' });
+        }
+
+        // Save waitlist sign-up in leads table
+        const { data, error } = await supabase
+            .from('leads')
+            .insert([{
+                business_name: 'Waitlist Signup',
+                email: email,
+                status: 'WAITLIST',
+                outreach_draft: 'Landing page waitlist subscriber'
+            }])
+            .select();
+
+        if (error) throw error;
+        res.status(201).json({ success: true, lead: data[0] });
+    } catch (err) {
+        console.error('Waitlist save error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /waitlist - Retrieve list of waitlist emails (ordered by registration date)
+router.get('/waitlist', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('leads')
+            .select('email, created_at')
+            .eq('status', 'WAITLIST')
+            .order('created_at', { ascending: false });
+            
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;
+
+
