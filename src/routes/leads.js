@@ -1,6 +1,7 @@
 import express from 'express';
 import { supabase } from '../db/index.js';
 import { draftOutreachEmail } from '../services/outreachManager.js';
+import { parseOutreachDraft, sendEmail } from '../services/mailService.js';
 
 const router = express.Router();
 
@@ -122,6 +123,66 @@ router.get('/waitlist', async (req, res) => {
         if (error) throw error;
         res.json(data);
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /:id/send - Dispatch the AI outreach email via Resend
+router.post('/:id/send', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // 1. Fetch lead from database
+        const { data: lead, error: getError } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('id', id)
+            .limit(1)
+            .single();
+
+        if (getError || !lead) {
+            return res.status(404).json({ error: 'Lead not found' });
+        }
+
+        if (!lead.email || lead.email === 'No Email Found' || lead.email.includes('@2.1.8') || !lead.email.includes('@')) {
+            return res.status(400).json({ error: 'Lead does not have a valid email address' });
+        }
+
+        if (!lead.outreach_draft) {
+            return res.status(400).json({ error: 'Lead does not have an AI outreach draft' });
+        }
+
+        // 2. Parse Subject and Body
+        const { subject, body } = parseOutreachDraft(lead.outreach_draft);
+
+        // 3. Send email via Resend
+        const result = await sendEmail({
+            to: lead.email,
+            subject: subject,
+            text: body
+        });
+
+        if (!result.success) {
+            return res.status(500).json({ error: result.error || 'Failed to dispatch email' });
+        }
+
+        // 4. Update lead status in database
+        const { error: updateError } = await supabase
+            .from('leads')
+            .update({ status: 'SENT' })
+            .eq('id', id);
+
+        if (updateError) {
+            console.error('⚠️ Warning: Email sent but status update in DB failed:', updateError.message);
+        }
+
+        res.json({
+            success: true,
+            message: 'Outreach email dispatched successfully',
+            simulated: result.simulated || false,
+            id: result.id
+        });
+    } catch (err) {
+        console.error('Outreach send handler error:', err);
         res.status(500).json({ error: err.message });
     }
 });
