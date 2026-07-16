@@ -116,8 +116,11 @@ async function syncUserTier(email) {
         const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
         if (!authError && authData && authData.users) {
             const authUser = authData.users.find(u => u.email === email);
-            if (authUser && authUser.raw_user_meta_data && authUser.raw_user_meta_data.subscription_tier) {
-                tier = authUser.raw_user_meta_data.subscription_tier;
+            if (authUser) {
+                const metadata = authUser.user_metadata || authUser.raw_user_meta_data || {};
+                if (metadata.subscription_tier) {
+                    tier = metadata.subscription_tier;
+                }
             }
         }
 
