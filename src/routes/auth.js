@@ -142,6 +142,20 @@ router.get('/status/:email', async (req, res) => {
     const { email } = req.params;
     try {
         const tier = await syncUserTier(email);
+        
+        let facebookConnected = false;
+        let trustpilotConnected = false;
+        
+        // Retrieve connection status from Supabase Auth metadata
+        const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
+        if (!authError && authData && authData.users) {
+            const authUser = authData.users.find(u => u.email === email);
+            if (authUser) {
+                const metadata = authUser.user_metadata || authUser.raw_user_meta_data || {};
+                facebookConnected = !!metadata.facebook_connected;
+                trustpilotConnected = !!metadata.trustpilot_connected;
+            }
+        }
 
         const { data: userData, error: userError } = await supabase
             .from('users')
@@ -149,18 +163,21 @@ router.get('/status/:email', async (req, res) => {
             .eq('email', email)
             .single();
 
-        if (userError || !userData) {
-            return res.json({ connected: false, tier });
+        let googleConnected = false;
+        if (userData) {
+            const { data: tokenData, error: tokenError } = await supabase
+                .from('oauth_tokens')
+                .select('id')
+                .eq('user_id', userData.id)
+                .single();
+            googleConnected = !!tokenData && !tokenError;
         }
 
-        const { data: tokenData, error: tokenError } = await supabase
-            .from('oauth_tokens')
-            .select('id')
-            .eq('user_id', userData.id)
-            .single();
-
         res.json({ 
-            connected: !!tokenData && !tokenError,
+            connected: googleConnected, // compatibility fallback
+            googleConnected,
+            facebookConnected,
+            trustpilotConnected,
             tier: tier
         });
     } catch (err) {
@@ -207,6 +224,109 @@ router.post('/tier', async (req, res) => {
             console.warn('⚠️ Could not update subscription_tier in public.users:', error.message);
         }
         res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST route to connect a mock platform (Facebook/Trustpilot)
+router.post('/connect/:platform', async (req, res) => {
+    const { platform } = req.params;
+    const { email } = req.body;
+    
+    if (!email || !['facebook', 'trustpilot'].includes(platform)) {
+        return res.status(400).json({ error: 'Invalid platform or missing email' });
+    }
+    
+    try {
+        // 1. Update Supabase Auth user metadata connection status
+        const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
+        if (listError || !users) throw listError || new Error('Could not fetch user list');
+        
+        const authUser = users.find(u => u.email === email);
+        if (!authUser) throw new Error('User not found in Supabase Auth');
+        
+        const metadataKey = `${platform}_connected`;
+        await supabase.auth.admin.updateUserById(
+            authUser.id,
+            { user_metadata: { ...authUser.user_metadata, [metadataKey]: true } }
+        );
+        
+        // 2. Fetch or create user database ID
+        let { data: dbUser } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', email)
+            .maybeSingle();
+            
+        if (!dbUser) {
+            const { data: newUser } = await supabase
+                .from('users')
+                .upsert({ email }, { onConflict: 'email' })
+                .select()
+                .single();
+            dbUser = newUser;
+        }
+        
+        // 3. Create a mock location for the platform so the selector dropdown can display it
+        const mockLocationId = `${platform}-mock-id-${dbUser.id}`;
+        const mockBusinessName = platform === 'facebook' ? 'The Mudhouse Hostel (Facebook)' : 'The Mudhouse Hostel (Trustpilot)';
+        
+        await supabase
+            .from('locations')
+            .upsert([{
+                user_id: dbUser.id,
+                google_location_id: mockLocationId,
+                gbp_location_id: mockLocationId,
+                google_account_id: 'mock-account',
+                business_name: mockBusinessName,
+                tone_preference: 'Professional'
+            }], { onConflict: 'google_location_id' });
+            
+        res.json({ success: true, message: `Successfully connected ${platform} page!` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE route to disconnect a mock platform
+router.delete('/disconnect/:platform/:email', async (req, res) => {
+    const { platform, email } = req.params;
+    
+    if (!email || !['facebook', 'trustpilot'].includes(platform)) {
+        return res.status(400).json({ error: 'Invalid platform or missing email' });
+    }
+    
+    try {
+        // 1. Update Supabase Auth user metadata
+        const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
+        if (listError || !users) throw listError || new Error('Could not fetch user list');
+        
+        const authUser = users.find(u => u.email === email);
+        if (!authUser) throw new Error('User not found in Supabase Auth');
+        
+        const metadataKey = `${platform}_connected`;
+        await supabase.auth.admin.updateUserById(
+            authUser.id,
+            { user_metadata: { ...authUser.user_metadata, [metadataKey]: false } }
+        );
+        
+        // 2. Remove mock location
+        let { data: dbUser } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', email)
+            .maybeSingle();
+            
+        if (dbUser) {
+            const mockLocationId = `${platform}-mock-id-${dbUser.id}`;
+            await supabase
+                .from('locations')
+                .delete()
+                .eq('google_location_id', mockLocationId);
+        }
+        
+        res.json({ success: true, message: `Successfully disconnected ${platform} page.` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
