@@ -99,10 +99,47 @@ router.get('/google/callback', async (req, res) => {
     }
 });
 
-// GET connection status
+// Self-healing helper to synchronize Supabase Auth metadata tier with public PostgreSQL schema
+async function syncUserTier(email) {
+    let tier = 'professional'; // default fallback
+    try {
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', email)
+            .maybeSingle();
+        
+        if (userData && userData.subscription_tier) {
+            return userData.subscription_tier;
+        }
+
+        const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
+        if (!authError && authData && authData.users) {
+            const authUser = authData.users.find(u => u.email === email);
+            if (authUser && authUser.raw_user_meta_data && authUser.raw_user_meta_data.subscription_tier) {
+                tier = authUser.raw_user_meta_data.subscription_tier;
+            }
+        }
+
+        const { error: upsertError } = await supabase
+            .from('users')
+            .upsert({ email, subscription_tier: tier }, { onConflict: 'email' });
+            
+        if (upsertError) {
+            console.warn('⚠️ Could not save subscription_tier to public.users schema (perhaps column does not exist yet). Falling back to metadata tier:', tier);
+        }
+    } catch (e) {
+        console.error('Error syncing user tier:', e.message);
+    }
+    return tier;
+}
+
+// GET connection status and user subscription details
 router.get('/status/:email', async (req, res) => {
     const { email } = req.params;
     try {
+        const tier = await syncUserTier(email);
+
         const { data: userData, error: userError } = await supabase
             .from('users')
             .select('id')
@@ -110,7 +147,7 @@ router.get('/status/:email', async (req, res) => {
             .single();
 
         if (userError || !userData) {
-            return res.json({ connected: false });
+            return res.json({ connected: false, tier });
         }
 
         const { data: tokenData, error: tokenError } = await supabase
@@ -119,7 +156,10 @@ router.get('/status/:email', async (req, res) => {
             .eq('user_id', userData.id)
             .single();
 
-        res.json({ connected: !!tokenData && !tokenError });
+        res.json({ 
+            connected: !!tokenData && !tokenError,
+            tier: tier
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

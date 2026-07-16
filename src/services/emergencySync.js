@@ -50,6 +50,26 @@ export async function syncGoogleReviews(userId) {
             businessName = locs[0].title;
             console.log(`🎯 Target Discovered: ${businessName} (Acc: ${cleanAccountId}, Loc: ${cleanLocationId})`);
             
+            // Enforce plan-based location limits
+            const { data: existingLocs } = await supabase
+                .from('locations')
+                .select('id')
+                .eq('user_id', userId);
+            const activeCount = existingLocs ? existingLocs.length : 0;
+
+            const { data: userProfile } = await supabase
+                .from('users')
+                .select('subscription_tier')
+                .eq('id', userId)
+                .maybeSingle();
+            const userTier = (userProfile && userProfile.subscription_tier) ? userProfile.subscription_tier : 'starter';
+            const limits = { starter: 1, professional: 10, agency: Infinity };
+            const allowedLimit = limits[userTier] || 1;
+
+            if (activeCount >= allowedLimit) {
+                throw new Error(`LIMIT_EXCEEDED: Your ${userTier.toUpperCase()} plan only supports up to ${allowedLimit} location(s). Please upgrade your plan to connect more.`);
+            }
+
             // Auto-enroll to save for next time (CLEAN VERSION)
             const { data: newLoc } = await supabase
                 .from('locations')
