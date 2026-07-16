@@ -192,4 +192,21 @@ router.delete('/disconnect/:email', async (req, res) => {
     }
 });
 
+// POST route to manually update or set user's subscription tier
+router.post('/tier', async (req, res) => {
+    const { email, tier } = req.body;
+    try {
+        const { error } = await supabase
+            .from('users')
+            .upsert({ email, subscription_tier: tier }, { onConflict: 'email' });
+        
+        if (error) {
+            console.warn('⚠️ Could not update subscription_tier in public.users:', error.message);
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;
