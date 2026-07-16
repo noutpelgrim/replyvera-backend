@@ -250,6 +250,14 @@ router.post('/request-platform', async (req, res) => {
             { user_metadata: { ...authUser.user_metadata, [metadataKey]: true } }
         );
         
+        // 🚀 Automatically send a notification email to the owner
+        const { sendEmail } = await import('../services/mailService.js');
+        await sendEmail({
+            to: 'info@replyvera.com',
+            subject: `🚀 New Integration Request: ${platform.toUpperCase()}`,
+            text: `Hi Nout,\n\nUser ${email} has requested activation for the ${platform.toUpperCase()} review integration.\n\nBest regards,\nReplyVera System Bot`
+        });
+        
         res.json({ success: true, message: `Successfully registered interest for ${platform}!` });
     } catch (err) {
         res.status(500).json({ error: err.message });
