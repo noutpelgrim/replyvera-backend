@@ -22,10 +22,10 @@ async function run() {
             process.exit(1);
         }
         
-        // Remove interest request keys from metadata
+        // Explicitly set flags to false to bypass Supabase's shallow merge behavior
         const updatedMeta = { ...authUser.user_metadata };
-        delete updatedMeta.requested_facebook;
-        delete updatedMeta.requested_trustpilot;
+        updatedMeta.requested_facebook = false;
+        updatedMeta.requested_trustpilot = false;
         
         const { error: updateError } = await supabase.auth.admin.updateUserById(
             authUser.id,
