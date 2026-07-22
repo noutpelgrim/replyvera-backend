@@ -1,8 +1,101 @@
 import express from 'express';
+import { Paddle, Environment } from '@paddle/paddle-node-sdk';
 import { reviewQueue } from '../services/queue.js';
 import { query } from '../db/index.js';
 
 const router = express.Router();
+
+// Initialize Paddle Node SDK
+const paddleEnv = process.env.PADDLE_ENVIRONMENT === 'production' ? Environment.production : Environment.sandbox;
+const paddleApiKey = process.env.PADDLE_API_KEY;
+const paddle = (paddleApiKey && !paddleApiKey.includes('PLACEHOLDER')) 
+    ? new Paddle(paddleApiKey, { environment: paddleEnv }) 
+    : null;
+
+/**
+ * Endpoint for Paddle Billing Webhooks
+ */
+router.post('/paddle', async (req, res) => {
+    try {
+        const signature = req.headers['paddle-signature'] || '';
+        const rawBody = req.rawBody || JSON.stringify(req.body);
+        const webhookSecret = process.env.PADDLE_WEBHOOK_SECRET || '';
+
+        let event;
+        if (paddle && webhookSecret && !webhookSecret.includes('PLACEHOLDER') && signature) {
+            try {
+                event = paddle.webhooks.unmarshal(rawBody, webhookSecret, signature);
+            } catch (err) {
+                console.error('[Paddle Webhook] Signature verification failed:', err.message);
+                return res.status(400).send({ error: 'Signature verification failed' });
+            }
+        } else {
+            event = req.body;
+        }
+
+        const eventType = event.event_type || event.eventType;
+        const data = event.data || {};
+
+        console.log(`\n🔔 [Paddle Webhook] Event Received: ${eventType}`);
+
+        switch (eventType) {
+            case 'subscription.created':
+            case 'subscription.updated': {
+                const status = data.status; // 'active', 'trialing', 'canceled', etc.
+                const priceId = data.items?.[0]?.price?.id;
+                const customData = data.custom_data || {};
+                const userId = customData.userId || customData.user_id;
+
+                console.log(`   ✓ Subscription ${data.id} -> Status: ${status}, Price: ${priceId}`);
+                
+                // Map price ID to internal plan tier
+                let planTier = 'starter';
+                if (priceId === process.env.PADDLE_PRICE_AUTOPILOT_MONTHLY || priceId === process.env.PADDLE_PRICE_AUTOPILOT_ANNUAL) {
+                    planTier = 'autopilot';
+                } else if (priceId === process.env.PADDLE_PRICE_MULTI_MONTHLY || priceId === process.env.PADDLE_PRICE_MULTI_ANNUAL) {
+                    planTier = 'multi_location';
+                } else if (priceId === process.env.PADDLE_PRICE_AGENCY_MONTHLY || priceId === process.env.PADDLE_PRICE_AGENCY_ANNUAL) {
+                    planTier = 'agency';
+                }
+
+                if (userId) {
+                    await query(
+                        `UPDATE users SET subscription_tier = $1, subscription_status = $2, paddle_subscription_id = $3 WHERE id = $4`,
+                        [planTier, status, data.id, userId]
+                    ).catch(err => console.log('   ⚠️  DB update note:', err.message));
+                }
+                break;
+            }
+
+            case 'subscription.canceled': {
+                console.log(`   ✓ Subscription ${data.id} canceled.`);
+                const customData = data.custom_data || {};
+                const userId = customData.userId || customData.user_id;
+
+                if (userId) {
+                    await query(
+                        `UPDATE users SET subscription_status = 'canceled' WHERE id = $1`,
+                        [userId]
+                    ).catch(err => console.log('   ⚠️  DB update note:', err.message));
+                }
+                break;
+            }
+
+            case 'transaction.completed': {
+                console.log(`   ✓ Payment completed for transaction ${data.id}`);
+                break;
+            }
+
+            default:
+                console.log(`   ℹ️ Event ${eventType} processed.`);
+        }
+
+        res.status(200).send({ status: 'success' });
+    } catch (error) {
+        console.error('❌ Error handling Paddle webhook:', error);
+        res.status(500).send({ error: 'Internal Webhook Error' });
+    }
+});
 
 /**
  * Endpoint for Google Business Profile to send notification of new reviews.
@@ -10,13 +103,9 @@ const router = express.Router();
  */
 router.post('/google-business/reviews', async (req, res) => {
     try {
-        // Google usually sends an array of events or a single event wrapper
         const eventData = req.body;
-        
         console.log('Received Webhook Payload from Google:', JSON.stringify(eventData, null, 2));
 
-        // Basic extraction (Assuming standard Google Pub/Sub wrapped JSON format)
-        // Adjust depending on actual integration mode (Direct Webhook vs Pub/Sub push)
         let messageData;
         if (eventData.message && eventData.message.data) {
             messageData = JSON.parse(Buffer.from(eventData.message.data, 'base64').toString('utf-8'));
@@ -24,9 +113,7 @@ router.post('/google-business/reviews', async (req, res) => {
             messageData = eventData;
         }
 
-        // Add to Redis Queue to process asynchronously, so we return 200 OK to Google immediately
         await reviewQueue.add('processReview', { reviewData: messageData });
-
         res.status(200).send('Webhook Received');
     } catch (error) {
         console.error('Error handling Google webhook:', error);
@@ -35,3 +122,4 @@ router.post('/google-business/reviews', async (req, res) => {
 });
 
 export default router;
+

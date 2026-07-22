@@ -15,9 +15,19 @@ import googleRoutes from './routes/google.js';
 import leadsRoutes from './routes/leads.js';
 import analyticsRoutes from './routes/analytics.js';
 
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDir = path.resolve(__dirname, '../../replyvera');
+
 dotenv.config();
 
 const app = express();
+
+// Serve static frontend files (pricing.html, index.html, css, js)
+app.use(express.static(frontendDir));
 
 // Enable CORS for frontend dashboard and public landing page
 app.use(cors({
