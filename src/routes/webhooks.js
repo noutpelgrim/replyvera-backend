@@ -1,7 +1,7 @@
 import express from 'express';
 import { Paddle, Environment } from '@paddle/paddle-node-sdk';
 import { reviewQueue } from '../services/queue.js';
-import { query } from '../db/index.js';
+import { supabase } from '../db/index.js';
 
 const router = express.Router();
 
@@ -59,10 +59,12 @@ router.post('/paddle', async (req, res) => {
                 }
 
                 if (userId) {
-                    await query(
-                        `UPDATE users SET subscription_tier = $1, subscription_status = $2, paddle_subscription_id = $3 WHERE id = $4`,
-                        [planTier, status, data.id, userId]
-                    ).catch(err => console.log('   ⚠️  DB update note:', err.message));
+                    const { error: dbErr } = await supabase.from('users').update({
+                        subscription_tier: planTier,
+                        subscription_status: status,
+                        paddle_subscription_id: data.id
+                    }).eq('id', userId);
+                    if (dbErr) console.error('   ⚠️ DB update error:', dbErr.message);
                 }
                 break;
             }
@@ -73,10 +75,10 @@ router.post('/paddle', async (req, res) => {
                 const userId = customData.userId || customData.user_id;
 
                 if (userId) {
-                    await query(
-                        `UPDATE users SET subscription_status = 'canceled' WHERE id = $1`,
-                        [userId]
-                    ).catch(err => console.log('   ⚠️  DB update note:', err.message));
+                    const { error: dbErr } = await supabase.from('users').update({
+                        subscription_status: 'canceled'
+                    }).eq('id', userId);
+                    if (dbErr) console.error('   ⚠️ DB update error:', dbErr.message);
                 }
                 break;
             }
