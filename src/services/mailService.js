@@ -30,6 +30,18 @@ export function parseOutreachDraft(draft) {
     return { subject, body };
 }
 
+function convertTextToHtml(text) {
+    if (!text) return "";
+    let html = text.replace(/\n\n/g, '</p><p style="margin-bottom: 14px; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; font-size: 15px; color: #2D3748;">');
+    html = html.replace(/\n/g, '<br/>');
+    const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+    html = html.replace(urlRegex, (url) => {
+        const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+        return `<a href="${fullUrl}" target="_blank" style="color: #6C47FF; font-weight: 600; text-decoration: underline;">${url}</a>`;
+    });
+    return `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; padding: 20px; color: #2D3748; font-size: 15px;"><p style="margin-bottom: 14px; line-height: 1.6;">${html}</p></div>`;
+}
+
 /**
  * Dispatches an email using the Resend REST API.
  * @param {string} to - Recipient email address
@@ -63,7 +75,8 @@ export async function sendEmail({ to, subject, text }) {
                 from,
                 to: [to],
                 subject,
-                text
+                text,
+                html: convertTextToHtml(text)
             })
         });
 
