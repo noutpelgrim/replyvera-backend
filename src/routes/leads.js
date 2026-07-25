@@ -20,6 +20,22 @@ router.get('/', async (req, res) => {
     }
 });
 
+// DELETE all leads (Clear prospect list to 0)
+router.delete('/', async (req, res) => {
+    try {
+        const { error } = await supabase
+            .from('leads')
+            .delete()
+            .neq('id', '00000000-0000-0000-0000-000000000000');
+            
+        if (error) throw error;
+        res.json({ success: true, message: 'All prospects cleared successfully' });
+    } catch (err) {
+        console.error('Error clearing leads:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST a new lead (from scanner)
 router.post('/', async (req, res) => {
     const { business_name, rating, address, website, email } = req.body;
@@ -223,9 +239,9 @@ async function extractEmailFromWebsite(url) {
 
 // POST /scan - Target Google Maps Lead Scanner API
 router.post('/scan', async (req, res) => {
-    const { category = 'Restaurants', location = 'New York' } = req.body;
+    const { category = 'Restaurants', location = 'New York', ratingFilter = 'all' } = req.body;
     const query = `${category} in ${location}`;
-    console.log(`🔍 [API Target Scan] Searching: ${query}...`);
+    console.log(`🔍 [API Target Scan] Searching: ${query} (Filter: ${ratingFilter})...`);
 
     try {
         const SERPAPI_KEY = process.env.SERPAPI_KEY || "7157fa4f16c69e5ebdd6435f5ab36c782748d6a288e79627db7b41b921fc0fa7";
@@ -234,12 +250,20 @@ router.post('/scan', async (req, res) => {
         const searchRes = await fetch(searchUrl);
         const searchData = await searchRes.json();
         
-        const localResults = searchData.local_results || (searchData.place_results ? [searchData.place_results] : []);
-        console.log(`✅ Found ${localResults.length} matches for ${query}`);
+        let localResults = searchData.local_results || (searchData.place_results ? [searchData.place_results] : []);
+        
+        // Apply Rating Filter if specified
+        if (ratingFilter === 'low') {
+            localResults = localResults.filter(p => (p.rating || 0) < 4.0);
+        } else if (ratingFilter === 'high') {
+            localResults = localResults.filter(p => (p.rating || 0) >= 4.0);
+        }
+
+        console.log(`✅ Filtered ${localResults.length} matches for ${query} (${ratingFilter})`);
 
         let newLeads = [];
 
-        for (const place of localResults.slice(0, 8)) {
+        for (const place of localResults.slice(0, 10)) {
             let extractedEmail = null;
             if (place.website) {
                 extractedEmail = await extractEmailFromWebsite(place.website);
@@ -250,15 +274,21 @@ router.post('/scan', async (req, res) => {
                 extractedEmail = domain ? `info@${domain}` : `contact@${place.title.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
             }
 
-            const draft = await draftOutreachEmail({ 
-                business_name: place.title, 
-                rating: place.rating || 4.5, 
-                website: place.website || 'N/A' 
-            });
+            const ratingVal = place.rating || (ratingFilter === 'low' ? 3.4 : 4.5);
+            let draft;
+            if (ratingVal < 4.0) {
+                draft = `Subject: Protecting ${place.title}'s Google reputation & turning around negative reviews\n\nHi ${place.title} Team,\n\nI was reviewing your Google Maps listing and noticed your current rating is ${ratingVal} stars.\n\nNegative or unreplied customer reviews are actively hurting your foot traffic and driving customers to competitors.\n\nReplyVera provides automated, empathetic review responses that handle complaints professionally and protect your brand reputation.\n\nWould you be open to a 3-minute demo or a 30-day trial to repair and protect your Google rating?\n\nBest regards,\nReplyVera Team\nwww.replyvera.com`;
+            } else {
+                draft = await draftOutreachEmail({ 
+                    business_name: place.title, 
+                    rating: ratingVal, 
+                    website: place.website || 'N/A' 
+                });
+            }
 
             const leadObj = {
                 business_name: place.title,
-                rating: place.rating || 4.5,
+                rating: ratingVal,
                 address: place.address || place.location || location,
                 website: place.website || 'No website listed',
                 email: extractedEmail,
@@ -279,7 +309,7 @@ router.post('/scan', async (req, res) => {
 
         res.json({
             success: true,
-            message: `Successfully scanned ${query} and created ${newLeads.length} new prospects!`,
+            message: `Successfully scanned ${query} (${ratingFilter}) and created ${newLeads.length} new prospects!`,
             found: newLeads.length,
             leads: newLeads
         });
