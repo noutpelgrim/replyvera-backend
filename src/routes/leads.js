@@ -196,6 +196,101 @@ router.post('/:id/send', async (req, res) => {
     }
 });
 
+// Helper function to extract email from website
+async function extractEmailFromWebsite(url) {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const response = await fetch(url, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        clearTimeout(timeoutId);
+        const html = await response.text();
+        const matches = html.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/gi);
+        if (matches && matches.length > 0) {
+            const valid = matches.filter(e => {
+                const lower = e.toLowerCase();
+                return !lower.endsWith('.png') && !lower.endsWith('.jpg') && !lower.endsWith('.svg') && !lower.includes('sentry') && !lower.includes('example.com') && !lower.includes('wixpress');
+            });
+            if (valid.length > 0) return [...new Set(valid)][0].toLowerCase();
+        }
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// POST /scan - Target Google Maps Lead Scanner API
+router.post('/scan', async (req, res) => {
+    const { category = 'Restaurants', location = 'New York' } = req.body;
+    const query = `${category} in ${location}`;
+    console.log(`🔍 [API Target Scan] Searching: ${query}...`);
+
+    try {
+        const SERPAPI_KEY = process.env.SERPAPI_KEY || "7157fa4f16c69e5ebdd6435f5ab36c782748d6a288e79627db7b41b921fc0fa7";
+        const searchUrl = `https://serpapi.com/search.json?engine=google_maps&q=${encodeURIComponent(query)}&hl=en&gl=us&api_key=${SERPAPI_KEY}`;
+        
+        const searchRes = await fetch(searchUrl);
+        const searchData = await searchRes.json();
+        
+        const localResults = searchData.local_results || (searchData.place_results ? [searchData.place_results] : []);
+        console.log(`✅ Found ${localResults.length} matches for ${query}`);
+
+        let newLeads = [];
+
+        for (const place of localResults.slice(0, 8)) {
+            let extractedEmail = null;
+            if (place.website) {
+                extractedEmail = await extractEmailFromWebsite(place.website);
+            }
+
+            if (!extractedEmail) {
+                const domain = place.website ? place.website.replace('http://','').replace('https://','').split('/')[0].replace('www.','') : null;
+                extractedEmail = domain ? `info@${domain}` : `contact@${place.title.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
+            }
+
+            const draft = await draftOutreachEmail({ 
+                business_name: place.title, 
+                rating: place.rating || 4.5, 
+                website: place.website || 'N/A' 
+            });
+
+            const leadObj = {
+                business_name: place.title,
+                rating: place.rating || 4.5,
+                address: place.address || place.location || location,
+                website: place.website || 'No website listed',
+                email: extractedEmail,
+                outreach_draft: draft,
+                status: 'NEW'
+            };
+
+            // Save to Supabase DB
+            const { data, error } = await supabase
+                .from('leads')
+                .insert([leadObj])
+                .select();
+
+            if (!error && data && data[0]) {
+                newLeads.push(data[0]);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Successfully scanned ${query} and created ${newLeads.length} new prospects!`,
+            found: newLeads.length,
+            leads: newLeads
+        });
+
+    } catch (err) {
+        console.error('API Scan error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;
+
 
 
