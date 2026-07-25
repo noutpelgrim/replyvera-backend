@@ -39,7 +39,7 @@ export function parseOutreachDraft(draft) {
  */
 export async function sendEmail({ to, subject, text }) {
     const apiKey = process.env.RESEND_API_KEY;
-    const from = process.env.OUTREACH_FROM_EMAIL || "ReplyVera <onboarding@resend.dev>";
+    const from = process.env.OUTREACH_FROM_EMAIL || "ReplyVera <info@replyvera.com>";
 
     if (!apiKey || apiKey === "re_PLACEHOLDER") {
         console.warn("⚠️ Resend API Key is missing or placeholder. Simulating successful email dispatch...");
