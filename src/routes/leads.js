@@ -14,7 +14,34 @@ router.get('/', async (req, res) => {
             .order('created_at', { ascending: false });
             
         if (error) throw error;
-        res.json(data);
+
+        // Standardize outreach draft for all existing and new leads
+        const standardized = (data || []).map(lead => ({
+            ...lead,
+            outreach_draft: `Subject: Quick question regarding unreplied Google reviews for ${lead.business_name}
+
+Hi ${lead.business_name} Team,
+
+I was reviewing your Google Maps profile today and noticed your impressive ${lead.rating || '4.8'}-star rating!
+
+However, I saw that customer reviews currently have zero response. Unreplied reviews reduce customer trust and lower your local Google Maps search ranking.
+
+ReplyVera works 24/7 to automatically draft personalized, professional responses to 100% of your Google reviews in under 3 seconds—even while you're busy or closed—while safely holding negative or sensitive complaints for human approval.
+
+✓ Works 24/7 on autopilot
+✓ Save 5–10 hours every week
+✓ Increase customer trust
+✓ 100% Google Business Profile compliant
+
+Would you be open to a 14-day free trial to see how it works for ${lead.business_name}?
+
+Best regards,
+Nout | Founder, ReplyVera
+nout@replyvera.com
+www.replyvera.com`
+        }));
+
+        res.json(standardized);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -275,16 +302,27 @@ router.post('/scan', async (req, res) => {
             }
 
             const ratingVal = place.rating || (ratingFilter === 'low' ? 3.4 : 4.5);
-            let draft;
-            if (ratingVal < 4.0) {
-                draft = `Subject: Protecting ${place.title}'s Google reputation & turning around negative reviews\n\nHi ${place.title} Team,\n\nI was reviewing your Google Maps listing and noticed your current rating is ${ratingVal} stars.\n\nNegative or unreplied customer reviews are actively hurting your foot traffic and driving customers to competitors.\n\nReplyVera provides automated, empathetic review responses that handle complaints professionally and protect your brand reputation.\n\nWould you be open to a 3-minute demo or a 30-day trial to repair and protect your Google rating?\n\nBest regards,\nReplyVera Team\nwww.replyvera.com`;
-            } else {
-                draft = await draftOutreachEmail({ 
-                    business_name: place.title, 
-                    rating: ratingVal, 
-                    website: place.website || 'N/A' 
-                });
-            }
+            const draft = `Subject: Quick question regarding unreplied Google reviews for ${place.title}
+
+Hi ${place.title} Team,
+
+I was reviewing your Google Maps profile today and noticed your impressive ${ratingVal}-star rating!
+
+However, I saw that customer reviews currently have zero response. Unreplied reviews reduce customer trust and lower your local Google Maps search ranking.
+
+ReplyVera works 24/7 to automatically draft personalized, professional responses to 100% of your Google reviews in under 3 seconds—even while you're busy or closed—while safely holding negative or sensitive complaints for human approval.
+
+✓ Works 24/7 on autopilot
+✓ Save 5–10 hours every week
+✓ Increase customer trust
+✓ 100% Google Business Profile compliant
+
+Would you be open to a 14-day free trial to see how it works for ${place.title}?
+
+Best regards,
+Nout | Founder, ReplyVera
+info@replyvera.com
+www.replyvera.com`;
 
             const leadObj = {
                 business_name: place.title,

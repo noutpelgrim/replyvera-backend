@@ -1,51 +1,36 @@
-import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const openai = new OpenAI({
-    apiKey: process.env.AI_KEY,
-});
-
 /**
- * Drafts a "Helpful Expert" cold outreach email for a new lead.
- * @param {Object} leadData - { business_name, rating, website }
- * @returns {Promise<string|null>}
+ * Generates the standardized Universal Outreach Email for any business prospect lead.
+ * @param {Object} leadData - { business_name, rating, website, ignored_count }
+ * @returns {Promise<string>}
  */
 export async function draftOutreachEmail(leadData) {
-    const { business_name, rating } = leadData;
+    const bizName = leadData.business_name || leadData.Name || 'your team';
+    const ratingVal = leadData.rating || leadData.Rating || '4.8';
+    const ignoredCount = leadData.ignored_count || leadData.IgnoredPositiveReviews || 'multiple';
 
-    try {
-        const prompt = `
-Write a short, high-converting cold outreach email for a tool called "ReplyVera".
-Target: A business owner of "${business_name}" who has a high Google rating (${rating}) but is currently ignoring their reviews.
+    return `Subject: Quick question regarding unreplied Google reviews for ${bizName}
 
-Tone: Helpful Expert (Friendly but authoritative).
-Constraint: Keep it under 150 words. 
-Constraint: DO NOT use placeholders like "[Your Name]" or "[Link]".
-Constraint: Focus on the value of replying to happy guests to boost SEO and customer loyalty.
-Constraint: Mention that we have already drafted suggested replies for their most recent reviews.
+Hi ${bizName} Team,
 
-Structure:
-1. Enthusiastic subject line.
-2. Compliment their great rating.
-3. Identify the "missing opportunity" (ignoring recent reviews).
-4. Introduce ReplyVera as a time-saving solution.
-5. Soft call to action.
-`;
+I was reviewing your Google Maps profile today and noticed your impressive ${ratingVal}-star rating!
 
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o',
-            messages: [
-                { role: 'system', content: 'You are a professional B2B marketing copywriter.' },
-                { role: 'user', content: prompt }
-            ],
-            temperature: 0.7,
-        });
+However, I saw that ${ignoredCount} customer reviews currently have zero response. Unreplied reviews reduce customer trust and lower your local Google Maps search ranking.
 
-        return response.choices[0]?.message?.content?.trim() || null;
-    } catch (error) {
-        console.error('Error drafting outreach email:', error);
-        return null;
-    }
+ReplyVera works 24/7 to automatically draft personalized, professional responses to 100% of your Google reviews in under 3 seconds—even while you're busy or closed—while safely holding negative or sensitive complaints for human approval.
+
+✓ Works 24/7 on autopilot
+✓ Save 5–10 hours every week
+✓ Increase customer trust
+✓ 100% Google Business Profile compliant
+
+Would you be open to a 14-day free trial to see how it works for ${bizName}?
+
+Best regards,
+Nout | Founder, ReplyVera
+info@replyvera.com
+www.replyvera.com`;
 }

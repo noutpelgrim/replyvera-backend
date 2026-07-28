@@ -32,14 +32,9 @@ export function parseOutreachDraft(draft) {
 
 function convertTextToHtml(text) {
     if (!text) return "";
-    let html = text.replace(/\n\n/g, '</p><p style="margin-bottom: 14px; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; font-size: 15px; color: #2D3748;">');
+    let html = text.replace(/\n\n/g, '</p><p style="margin-bottom: 14px; line-height: 1.6; font-family: sans-serif; font-size: 15px; color: #2D3748;">');
     html = html.replace(/\n/g, '<br/>');
-    const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
-    html = html.replace(urlRegex, (url) => {
-        const fullUrl = url.startsWith('http') ? url : `https://${url}`;
-        return `<a href="${fullUrl}" target="_blank" style="color: #6C47FF; font-weight: 600; text-decoration: underline;">${url}</a>`;
-    });
-    return `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; padding: 20px; color: #2D3748; font-size: 15px;"><p style="margin-bottom: 14px; line-height: 1.6;">${html}</p></div>`;
+    return `<div style="font-family: sans-serif; max-width: 600px; padding: 20px; color: #2D3748; font-size: 15px;"><p style="margin-bottom: 14px; line-height: 1.6;">${html}</p></div>`;
 }
 
 /**
@@ -51,7 +46,7 @@ function convertTextToHtml(text) {
  */
 export async function sendEmail({ to, subject, text }) {
     const apiKey = process.env.RESEND_API_KEY;
-    const from = process.env.OUTREACH_FROM_EMAIL || "ReplyVera <info@replyvera.com>";
+    const from = process.env.OUTREACH_FROM_EMAIL || "Nout | ReplyVera <nout@replyvera.com>";
 
     if (!apiKey || apiKey === "re_PLACEHOLDER") {
         console.warn("⚠️ Resend API Key is missing or placeholder. Simulating successful email dispatch...");
