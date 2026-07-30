@@ -105,6 +105,12 @@ router.post('/:id/send', async (req, res) => {
             return res.status(404).json({ error: 'Lead not found' });
         }
 
+        // Strict Single-Send Guard: Block duplicate sending if status is not NEW
+        if (lead.status !== 'NEW') {
+            console.log(`🔒 [Duplicate Prevented] ${lead.business_name} (${lead.email}) is already in status '${lead.status}'. Skipping.`);
+            return res.status(400).json({ error: `Outreach email has already been sent to ${lead.business_name}` });
+        }
+
         const isInvalidEmail = !lead.email || 
                               lead.email === 'No Email Found' || 
                               !lead.email.includes('@') || 
