@@ -140,7 +140,7 @@ router.post('/:id/send', async (req, res) => {
             .update({
                 status: 'SENT',
                 outreach_draft: draftToSend,
-                last_contacted_at: new Date().toISOString()
+                
             })
             .eq('id', id);
 
@@ -197,7 +197,7 @@ router.post('/:id/followup', async (req, res) => {
             .update({
                 status: nextStatus,
                 outreach_draft: draftText,
-                last_contacted_at: new Date().toISOString()
+                
             })
             .eq('id', id);
 
