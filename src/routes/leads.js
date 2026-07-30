@@ -290,7 +290,17 @@ router.post('/scan', async (req, res) => {
         let newLeads = [];
         const maxToProcess = Math.min(allResults.length, parseInt(limit) || 50);
 
+        // Fetch existing lead business names and emails to prevent duplicates
+        const { data: existingLeads } = await supabase.from('leads').select('business_name, email');
+        const existingNames = new Set((existingLeads || []).map(l => (l.business_name || '').toLowerCase().trim()));
+        const existingEmails = new Set((existingLeads || []).map(l => (l.email || '').toLowerCase().trim()));
+
         for (const place of allResults.slice(0, maxToProcess)) {
+            const placeTitleClean = (place.title || '').toLowerCase().trim();
+            if (existingNames.has(placeTitleClean)) {
+                console.log(`⏩ Skipping duplicate business: ${place.title}`);
+                continue;
+            }
             let extractedEmail = null;
             if (place.website) {
                 extractedEmail = await extractEmailFromWebsite(place.website);
@@ -302,6 +312,11 @@ router.post('/scan', async (req, res) => {
             }
 
             // Ensure valid email format
+            if (existingEmails.has((extractedEmail || '').toLowerCase().trim())) {
+                console.log(`⏩ Skipping duplicate email: ${extractedEmail}`);
+                continue;
+            }
+
             if (extractedEmail.includes('leaflet@') || extractedEmail.includes('domain.com') || extractedEmail.endsWith('.')) {
                 extractedEmail = `info@${place.title.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
             }
