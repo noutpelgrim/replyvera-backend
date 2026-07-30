@@ -68,18 +68,24 @@ router.post('/', async (req, res) => {
 // PATCH a lead (update status / draft)
 router.patch('/:id', async (req, res) => {
     const { id } = req.params;
-    const { status, outreach_draft } = req.body;
+    const { status, outreach_draft, email } = req.body;
     
     try {
+        const updatePayload = {};
+        if (status !== undefined) updatePayload.status = status;
+        if (outreach_draft !== undefined) updatePayload.outreach_draft = outreach_draft;
+        if (email !== undefined) updatePayload.email = email;
+
         const { data, error } = await supabase
             .from('leads')
-            .update({ status, outreach_draft })
+            .update(updatePayload)
             .eq('id', id)
             .select();
             
         if (error) throw error;
         res.json(data[0]);
     } catch (err) {
+        console.error('Error updating lead:', err);
         res.status(500).json({ error: err.message });
     }
 });
