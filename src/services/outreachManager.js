@@ -7,40 +7,31 @@ dotenv.config();
  */
 export async function draftOutreachEmail(leadData) {
     const bizName = leadData.business_name || leadData.Name || 'your business';
-    const recipientName = leadData.first_name || leadData.contact_name || bizName;
+    const recipientName = leadData.first_name || leadData.contact_name || `${bizName} Team`;
     const ratingVal = leadData.rating || leadData.Rating || '4.8';
+    const reviewCount = leadData.review_count || leadData.TotalScannedReviews || leadData.reviews_count || 'several';
+    const reviewerName = leadData.unreplied_reviewer_name || leadData.reviewer_name || 'a customer';
 
-    return `Subject: A quick idea for ${bizName}
+    return `Subject: Quick question about your Google reviews
 
 Hi ${recipientName},
 
-I came across ${bizName} on Google today and noticed your excellent ${ratingVal}★ rating—congratulations!
+I came across ${bizName} on Google today and noticed you've built an impressive ${ratingVal}⭐ rating with ${reviewCount} reviews—congratulations!
 
-I also noticed that several customer reviews haven't received a response yet. That's completely understandable when you're busy, but consistently replying to reviews helps build trust with future customers and keeps your Google Business Profile active and engaging.
+I also noticed that your recent review from ${reviewerName} hasn't received a reply yet. I completely understand—when you're busy, responding to every review is easy to put off.
 
-That's exactly why I created ReplyVera.
+That's actually why I built ReplyVera. It helps businesses respond to every Google review with natural, personalized replies in seconds while keeping you in full control.
 
-ReplyVera uses AI to generate natural, personalized replies to your Google reviews in under 3 seconds. Positive reviews can be published automatically, while negative or sensitive reviews are held for your approval—so you always stay in complete control.
+I generated a couple of example replies based on your recent reviews and thought you might find them useful.
 
-With ReplyVera, you can:
-✅ Reply to every Google review, 24/7
-✅ Save 5–10 hours every week
-✅ Build trust with future customers
-✅ Keep your Google Business Profile active with consistent engagement
-✅ Strengthen your local online presence over time
-✅ Maintain your unique brand voice
-✅ Stay fully compliant with Google Business Profile guidelines
+Would you like me to send them over?
 
-I'd love to offer ${bizName} a 14-day free trial, completely free and with no obligation, so you can see how it works with your own Google reviews.
-
-Would you be open to giving it a try?
-
-Best regards,
+Best,
 
 Nout
 Founder | ReplyVera
 📧 nout@replyvera.com
-🌐 www.replyvera.com`;
+🌐 https://replyvera.com`;
 }
 
 /**
