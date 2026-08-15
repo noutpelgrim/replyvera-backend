@@ -89,14 +89,8 @@ export async function postReplyToGoogle(userId, googleLocationId, googleReviewId
 
     if (!postSuccess) {
         const rawErr = lastError?.response?.data?.error?.message || lastError?.message || 'Google API error';
-        console.warn('⚠️ Google API reply endpoint notice:', rawErr);
-        
-        if (rawErr.includes('invalid_grant') || rawErr.includes('401') || rawErr.includes('Unauthenticated')) {
-            throw new Error('Google authorization session expired. Please click Disconnect Account and then Connect with Google.');
-        } else {
-            console.log('✅ Approved reply saved in database successfully.');
-            return { success: true, notice: rawErr };
-        }
+        console.error('❌ All Google reply endpoints failed:', rawErr);
+        throw new Error(`Google Maps API error: ${rawErr}`);
     }
     return { success: true };
 }
