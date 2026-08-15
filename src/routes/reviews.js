@@ -29,26 +29,32 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Helper function to find a review by UUID or string google_review_id
+async function getReviewWithLocation(id) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    let query = supabase.from('reviews').select('id, google_review_id, location_id, locations(user_id)');
+    if (isUuid) {
+        query = query.eq('id', id);
+    } else {
+        query = query.eq('google_review_id', id);
+    }
+    const { data } = await query.maybeSingle();
+    return data;
+}
+
 // UPDATE a review reply (Approve & Post)
 router.patch('/:id', async (req, res) => {
     const { id } = req.params;
     const { drafted_reply, status } = req.body;
     try {
+        const rev = await getReviewWithLocation(id);
+        if (!rev || !rev.locations?.user_id) throw new Error('Could not find owner for this review');
+
         // 1. If we are publishing, we need to hit the Google API
         if (status === 'PUBLISHED') {
             console.log(`🚀 Publishing approved reply for review ${id}...`);
-            
-            // Get the user_id for this review (mapped through locations)
-            const { data: rev } = await supabase
-                .from('reviews')
-                .select('locations(user_id)')
-                .eq('id', id)
-                .single();
-            
-            if (!rev || !rev.locations.user_id) throw new Error('Could not find owner for this review');
-
             // Actual call to Google My Business API
-            await postReviewReply(rev.locations.user_id, id, drafted_reply);
+            await postReviewReply(rev.locations.user_id, rev.id, drafted_reply);
             console.log('✅ Successfully posted to Google!');
         }
 
@@ -56,7 +62,7 @@ router.patch('/:id', async (req, res) => {
         const { data, error } = await supabase
             .from('reviews')
             .update({ drafted_reply, status })
-            .eq('id', id)
+            .eq('id', rev.id)
             .select();
             
         if (error) throw error;

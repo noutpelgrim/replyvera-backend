@@ -92,11 +92,14 @@ export async function syncGoogleReviews(userId, googleAccountId, googleLocationI
  */
 export async function postReviewReply(userId, reviewPk, replyText) {
     const { postReplyToGoogle } = await import('./googleService.js');
-    const { data: rev } = await supabase
-        .from('reviews')
-        .select('google_review_id, locations(google_location_id)')
-        .eq('id', reviewPk)
-        .single();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reviewPk);
+    let query = supabase.from('reviews').select('google_review_id, locations(google_location_id)');
+    if (isUuid) {
+        query = query.eq('id', reviewPk);
+    } else {
+        query = query.eq('google_review_id', reviewPk);
+    }
+    const { data: rev } = await query.maybeSingle();
     
     if (!rev) throw new Error('Review not found in local DB');
     
