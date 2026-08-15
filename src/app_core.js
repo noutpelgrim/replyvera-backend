@@ -52,6 +52,31 @@ app.use('/api/settings', settingRoutes);
 app.use('/api/leads', leadsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 
+import { syncGoogleReviews } from './services/emergencySync.js';
+
+function startAutoSyncScheduler() {
+    console.log('⏰ Starting 15-minute background Google review sync scheduler...');
+    const runAllSyncs = async () => {
+        try {
+            const { data: users } = await supabase.from('users').select('id');
+            if (users && users.length > 0) {
+                for (const u of users) {
+                    try {
+                        await syncGoogleReviews(u.id);
+                    } catch (e) {
+                        console.error(`Auto-sync error for user ${u.id}:`, e.message);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Auto-sync scheduler error:', err.message);
+        }
+    };
+
+    setTimeout(runAllSyncs, 10000);
+    setInterval(runAllSyncs, 15 * 60 * 1000);
+}
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
     console.log(`🚀 ReplyVera Backend active on port ${PORT}`);
@@ -59,6 +84,7 @@ app.listen(PORT, () => {
     
     // Start the BullMQ queue worker AFTER the server is live
     startWorker();
+    startAutoSyncScheduler();
 });
 
 // Basic health check to ensure deployment is alive
