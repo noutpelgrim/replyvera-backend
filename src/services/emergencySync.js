@@ -102,23 +102,30 @@ export async function syncGoogleReviews(userId) {
             }
             
             if (!syncSuccess || googleReviews.length === 0) {
-                console.log(`🚀 API Locked. Launching Google Public Scout fallback for ${businessName}...`);
-                googleReviews = [
-                    {
-                        reviewId: `scanned-iris-${loc.id}`,
-                        reviewer: { displayName: 'Iris Zagdoun' },
-                        starRating: 'FIVE',
-                        comment: 'Everything was amazing! A place that truly feels like home. The atmosphere is great, the staff is wonderful. Highly recommended!',
-                        createTime: new Date('2026-04-21').toISOString()
-                    },
-                    {
-                        reviewId: `scanned-jente-${loc.id}`,
-                        reviewer: { displayName: 'Jente' },
-                        starRating: 'FIVE',
-                        comment: 'Top hostel!! Jolanda, Nout en de kids ontvangen je met open armen. Mooi en proper hostel. Goed uitgeruste keuken en locatie vlakbij het strand. Aanrader!',
-                        createTime: new Date('2026-04-19').toISOString()
+                console.log(`🚀 API Locked. Launching SerpApi Google Live Scout fallback for ${businessName}...`);
+                try {
+                    const serpApiKey = process.env.SERPAPI_KEY || "7157fa4f16c69e5ebdd6435f5ab36c782748d6a288e79627db7b41b921fc0fa7";
+                    const dataId = "0x8fd506bceca07999:0xf7ce350312927865";
+                    const serpUrl = `https://serpapi.com/search.json?engine=google_maps_reviews&data_id=${dataId}&hl=en&sort_by=newestFirst&api_key=${serpApiKey}`;
+                    
+                    const serpRes = await fetch(serpUrl);
+                    const serpData = await serpRes.json();
+                    
+                    if (serpData && serpData.reviews && serpData.reviews.length > 0) {
+                        googleReviews = serpData.reviews.map(r => ({
+                            reviewId: r.review_id || `scanned-${r.user?.name?.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${loc.id.substring(0,8)}`,
+                            reviewer: { displayName: r.user?.name || 'Anonymous' },
+                            starRating: r.rating ? ({ 1: 'ONE', 2: 'TWO', 3: 'THREE', 4: 'FOUR', 5: 'FIVE' }[Math.round(r.rating)] || 'FIVE') : 'FIVE',
+                            comment: r.snippet || r.comment || '',
+                            createTime: new Date().toISOString()
+                        }));
+                        console.log(`✅ SerpApi retrieved ${googleReviews.length} live Google Maps reviews for ${businessName}!`);
+                    } else {
+                        console.log(`⚠️ SerpApi returned no reviews, preserving existing DB state.`);
                     }
-                ];
+                } catch (serpErr) {
+                    console.error(`❌ SerpApi live fetch error for ${businessName}:`, serpErr.message);
+                }
             }
             
             reviewsToSave = googleReviews.map(gr => ({
@@ -131,8 +138,13 @@ export async function syncGoogleReviews(userId) {
         }
         
         // Process and store the reviews for the active location
-        console.log(`🧹 Running wipeout for location ${loc.business_name} (ID: ${loc.id})`);
-        await supabase.from('reviews').delete().eq('location_id', loc.id);
+        if (reviewsToSave.length > 0) {
+            console.log(`🧹 Updating DB for location ${loc.business_name} (ID: ${loc.id}) with ${reviewsToSave.length} reviews...`);
+            await supabase.from('reviews').delete().eq('location_id', loc.id);
+        } else {
+            console.log(`⚠️ No new reviews retrieved for ${loc.business_name}, skipping DB wipeout.`);
+            continue;
+        }
         
         for (const rev of reviewsToSave) {
             console.log(`🤖 Drafting AI reply for ${rev.reviewerName}...`);
