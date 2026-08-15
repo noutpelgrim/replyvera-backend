@@ -13,12 +13,30 @@ router.get('/enrolled', async (req, res) => {
     const { email } = req.query;
     try {
         const userId = await getUserId(email);
-        const { data, error } = await supabase
+        let { data, error } = await supabase
             .from('locations')
             .select('*')
             .eq('user_id', userId);
             
         if (error) throw error;
+        
+        // Auto-assign default location if user has no location assigned yet
+        if (!data || data.length === 0) {
+            const { data: defaultLoc } = await supabase
+                .from('locations')
+                .select('*')
+                .eq('id', '851e120d-0fa1-49c5-9128-9853e1500f9c')
+                .maybeSingle();
+            
+            if (defaultLoc) {
+                // Link this default location to user
+                await supabase.from('locations').update({ user_id: userId }).eq('id', defaultLoc.id);
+                data = [defaultLoc];
+            } else {
+                const { data: anyLoc } = await supabase.from('locations').select('*').limit(1);
+                data = anyLoc || [];
+            }
+        }
         
         // Map to match Google API shape for frontend consistency
         const formatted = data.map(loc => ({
