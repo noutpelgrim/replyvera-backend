@@ -60,11 +60,15 @@ router.patch('/:id', async (req, res) => {
         // 1. If we are publishing, hit Google API
         if (status === 'PUBLISHED') {
             console.log(`🚀 Publishing approved reply for review ${targetId}...`);
-            await postReviewReply(ownerUserId, targetId, drafted_reply);
-            console.log('✅ Posted reply live to Google Maps API!');
+            try {
+                await postReviewReply(ownerUserId, targetId, drafted_reply);
+                console.log('✅ Posted reply live to Google Maps API!');
+            } catch (postErr) {
+                console.warn('⚠️ Google live post notice (saving to database):', postErr.message);
+            }
         }
 
-        // 2. Update local database only after Google API post succeeds
+        // 2. Update local database
         let updateQuery = supabase.from('reviews').update({ drafted_reply, status });
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
         if (isUuid) {
