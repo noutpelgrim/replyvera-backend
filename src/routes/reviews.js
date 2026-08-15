@@ -58,22 +58,13 @@ router.patch('/:id', async (req, res) => {
         const ownerUserId = rev?.locations?.user_id || '2294d667-3a3c-426f-8e06-e171e1eaeebd';
 
         // 1. If we are publishing, hit Google API
-        let liveOnGoogle = false;
-        let postWarning = null;
         if (status === 'PUBLISHED') {
             console.log(`🚀 Publishing approved reply for review ${targetId}...`);
-            try {
-                await postReviewReply(ownerUserId, targetId, drafted_reply);
-                liveOnGoogle = true;
-                console.log('✅ Posted reply live to Google Maps API!');
-            } catch (postErr) {
-                console.warn('⚠️ Google live post failed:', postErr.message);
-                liveOnGoogle = false;
-                postWarning = postErr.message;
-            }
+            await postReviewReply(ownerUserId, targetId, drafted_reply);
+            console.log('✅ Posted reply live to Google Maps API!');
         }
 
-        // 2. Update local database
+        // 2. Update local database only after Google API post succeeds
         let updateQuery = supabase.from('reviews').update({ drafted_reply, status });
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
         if (isUuid) {
@@ -83,9 +74,7 @@ router.patch('/:id', async (req, res) => {
         }
 
         const { data, error } = await updateQuery.select();
-            
-        const resData = data?.[0] || { id: targetId, drafted_reply, status };
-        res.json({ ...resData, liveOnGoogle, warning: postWarning });
+        res.json(data?.[0] || { id: targetId, drafted_reply, status });
     } catch (err) {
         console.error('❌ Action failed:', err.message);
         res.status(500).json({ error: err.message });
