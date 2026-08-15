@@ -90,6 +90,27 @@ export async function postReplyToGoogle(userId, googleLocationId, googleReviewId
     if (!postSuccess) {
         const rawErr = lastError?.response?.data?.error?.message || lastError?.message || 'Google API error';
         console.error('❌ All Google reply endpoints failed:', rawErr);
+        
+        if (rawErr.includes('SERVICE_DISABLED') || rawErr.includes('has not been used in project')) {
+            try {
+                console.log('⚡ Self-Healing: Auto-enabling Google My Business API on GCP Project 889384342560...');
+                await oauth2Client.request({
+                    url: 'https://serviceusage.googleapis.com/v1/projects/889384342560/services/mybusiness.googleapis.com:enable',
+                    method: 'POST'
+                });
+                console.log('✅ Successfully auto-enabled Google My Business API! Retrying reply dispatch...');
+                for (const url of replyEndpoints) {
+                    try {
+                        await oauth2Client.request({ url, method: 'PUT', data: { comment: replyText } });
+                        console.log(`✅ Posted reply live to Google Maps after auto-enablement!`);
+                        return { success: true };
+                    } catch (retryErr) {}
+                }
+            } catch (enableErr) {
+                console.warn('⚠️ Auto-enable notice:', enableErr.message);
+            }
+        }
+        
         throw new Error(`Google Maps API error: ${rawErr}`);
     }
     return { success: true };

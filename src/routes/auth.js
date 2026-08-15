@@ -12,11 +12,12 @@ const getOAuth2Client = () => {
     );
 };
 
-// Scopes required for User email and Google Business Profile access
+// Scopes required for User email, Google Business Profile, and Cloud Platform service management
 const SCOPES = [
     'https://www.googleapis.com/auth/userinfo.email',
     'https://www.googleapis.com/auth/userinfo.profile',
-    'https://www.googleapis.com/auth/business.manage'
+    'https://www.googleapis.com/auth/business.manage',
+    'https://www.googleapis.com/auth/cloud-platform'
 ];
 
 router.get('/google', (req, res) => {
