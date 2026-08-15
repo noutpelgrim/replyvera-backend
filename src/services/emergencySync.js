@@ -117,6 +117,8 @@ export async function syncGoogleReviews(userId) {
                             reviewer: { displayName: r.user?.name || 'Anonymous' },
                             starRating: r.rating ? ({ 1: 'ONE', 2: 'TWO', 3: 'THREE', 4: 'FOUR', 5: 'FIVE' }[Math.round(r.rating)] || 'FIVE') : 'FIVE',
                             comment: r.snippet || r.comment || '',
+                            hasResponse: Boolean(r.response),
+                            existingReply: r.response?.snippet || r.response?.extracted_snippet?.original || '',
                             createTime: new Date().toISOString()
                         }));
                         console.log(`✅ SerpApi retrieved ${googleReviews.length} live Google Maps reviews for ${businessName}!`);
@@ -133,6 +135,8 @@ export async function syncGoogleReviews(userId) {
                 reviewerName: gr.reviewer?.displayName || gr.reviewerName || 'Anonymous',
                 rating: gr.starRating ? ({ 'ONE': 1, 'TWO': 2, 'THREE': 3, 'FOUR': 4, 'FIVE': 5 }[gr.starRating] || 5) : (gr.rating || 5),
                 comment: gr.comment || '',
+                hasResponse: gr.hasResponse || false,
+                existingReply: gr.existingReply || '',
                 createTime: gr.createTime
             }));
         }
@@ -147,21 +151,29 @@ export async function syncGoogleReviews(userId) {
         }
         
         for (const rev of reviewsToSave) {
-            console.log(`🤖 Drafting AI reply for ${rev.reviewerName}...`);
-            const tone = loc.tone_preference || 'Professional';
-            const aiDraft = await draftReply(rev.comment, rev.rating, tone, loc.business_name);
-            
             let status = 'NEEDS_APPROVAL';
-            // Auto post only for Google reviews if enabled and OAuth is active
-            if (loc.reply_mode === 'AUTO_POST' && !isFacebook && !isTrustpilot && auth) {
-                try {
-                    const { postReplyToGoogle } = await import('./googleService.js');
-                    const cleanLocId = loc.google_location_id.toString().replace(/locations\//g, '');
-                    await postReplyToGoogle(userId, cleanLocId, rev.reviewId, aiDraft);
-                    status = 'PUBLISHED';
-                } catch (err) {
-                    console.error(`AUTO_POST failed for Google review ${rev.reviewId}:`, err.message);
-                    status = 'NEEDS_APPROVAL';
+            let aiDraft = '';
+
+            if (rev.hasResponse) {
+                console.log(`✅ Review by ${rev.reviewerName} is ALREADY replied to on Google Maps.`);
+                status = 'PUBLISHED';
+                aiDraft = rev.existingReply;
+            } else {
+                console.log(`🤖 Drafting AI reply for unreplied review by ${rev.reviewerName}...`);
+                const tone = loc.tone_preference || 'Professional';
+                aiDraft = await draftReply(rev.comment, rev.rating, tone, loc.business_name);
+                
+                // Auto post only for Google reviews if enabled and OAuth is active
+                if (loc.reply_mode === 'AUTO_POST' && !isFacebook && !isTrustpilot && auth) {
+                    try {
+                        const { postReplyToGoogle } = await import('./googleService.js');
+                        const cleanLocId = loc.google_location_id.toString().replace(/locations\//g, '');
+                        await postReplyToGoogle(userId, cleanLocId, rev.reviewId, aiDraft);
+                        status = 'PUBLISHED';
+                    } catch (err) {
+                        console.error(`AUTO_POST failed for Google review ${rev.reviewId}:`, err.message);
+                        status = 'NEEDS_APPROVAL';
+                    }
                 }
             }
             
