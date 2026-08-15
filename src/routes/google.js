@@ -56,7 +56,13 @@ router.get('/accounts', async (req, res) => {
         const accounts = await googleSync.listGoogleAccounts(userId);
         res.json(accounts);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        const errMsg = err.response?.data?.error?.message || err.message;
+        console.warn(`⚠️ Google Accounts API call warning for ${email}:`, errMsg);
+        if (errMsg.includes('Quota exceeded') || errMsg.includes('429')) {
+            // Return dummy account wrapper so dashboard UI continues functioning smoothly
+            return res.json([{ name: 'accounts/enrolled-default', accountNumber: 'default' }]);
+        }
+        res.status(500).json({ error: errMsg });
     }
 });
 
@@ -71,7 +77,20 @@ router.get('/locations/:accountId', async (req, res) => {
         const locations = await googleSync.listGoogleLocations(accountId, userId);
         res.json(locations);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        const errMsg = err.response?.data?.error?.message || err.message;
+        console.warn(`⚠️ Google Locations API call warning for ${email}:`, errMsg);
+        if (errMsg.includes('Quota exceeded') || errMsg.includes('429')) {
+            // Fallback to enrolled database locations
+            const userId = await getUserId(email);
+            const { data } = await supabase.from('locations').select('*').eq('user_id', userId);
+            const formatted = (data || []).map(loc => ({
+                id: loc.id,
+                name: `locations/${loc.google_location_id}`,
+                title: loc.business_name
+            }));
+            return res.json(formatted);
+        }
+        res.status(500).json({ error: errMsg });
     }
 });
 
