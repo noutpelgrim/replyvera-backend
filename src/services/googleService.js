@@ -67,40 +67,11 @@ export async function postReplyToGoogle(userId, googleLocationId, googleReviewId
         } catch (error) {
             const errorDetail = error.response?.data || error.message;
             console.error('❌ Official API failed:', JSON.stringify(errorDetail));
-            console.log('🔄 API is gated or tokens expired. Switching to Vera Scout Automation Bridge...');
-            
-            // Fallback to Automation
-            const { postReplyViaAutomation } = await import('./automationService.js');
-            
-            // We need the business name for searching
-            const { data: locData } = await supabase
-                .from('locations')
-                .select('business_name')
-                .eq('google_location_id', googleLocationId)
-                .single();
-            
-            await postReplyViaAutomation(locData?.business_name || 'The Mudhouse Hostel', 'Iris Zagdoun', replyText);
-            console.log('✅ Successfully posted reply via Vera Scout Automation.');
-            return;
+            throw new Error(`Google Business Profile API error: Owner OAuth connection required to post live replies to Google Maps.`);
         }
     } catch (error) {
         const errorDetail = error?.response?.data || error;
         console.error('❌ Error posting reply to Google:', JSON.stringify(errorDetail, null, 2));
-        console.log('🔄 Auth/Token failed. Switching to Vera Scout Automation Bridge...');
-        
-        try {
-            const { postReplyViaAutomation } = await import('./automationService.js');
-            const { data: locData } = await supabase
-                .from('locations')
-                .select('business_name')
-                .eq('google_location_id', googleLocationId)
-                .single();
-            
-            await postReplyViaAutomation(locData?.business_name || 'The Mudhouse Hostel', 'Iris Zagdoun', replyText);
-            console.log('✅ Successfully posted reply via Vera Scout Automation.');
-        } catch (fallbackErr) {
-            console.error('❌ Fallback Automation failed:', fallbackErr.message);
-            throw fallbackErr;
-        }
+        throw new Error(`Google OAuth authentication missing: Connect Google Business Profile on dashboard.`);
     }
 }

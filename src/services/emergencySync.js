@@ -151,8 +151,8 @@ export async function syncGoogleReviews(userId) {
             const tone = loc.tone_preference || 'Professional';
             const aiDraft = await draftReply(rev.comment, rev.rating, tone, loc.business_name);
             
-            let status = 'PENDING';
-            // Auto post only for Google reviews if enabled, bypass mock platforms
+            let status = 'NEEDS_APPROVAL';
+            // Auto post only for Google reviews if enabled and OAuth is active
             if (loc.reply_mode === 'AUTO_POST' && !isFacebook && !isTrustpilot && auth) {
                 try {
                     const { postReplyToGoogle } = await import('./googleService.js');
@@ -161,7 +161,7 @@ export async function syncGoogleReviews(userId) {
                     status = 'PUBLISHED';
                 } catch (err) {
                     console.error(`AUTO_POST failed for Google review ${rev.reviewId}:`, err.message);
-                    status = 'FAILED';
+                    status = 'NEEDS_APPROVAL';
                 }
             }
             
