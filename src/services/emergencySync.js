@@ -102,31 +102,41 @@ export async function syncGoogleReviews(userId) {
             }
             
             if (!syncSuccess || googleReviews.length === 0) {
-                console.log(`🚀 API Locked. Launching SerpApi Google Live Scout fallback for ${businessName}...`);
-                try {
-                    const serpApiKey = process.env.SERPAPI_KEY || "7157fa4f16c69e5ebdd6435f5ab36c782748d6a288e79627db7b41b921fc0fa7";
-                    const dataId = "0x8fd506bceca07999:0xf7ce350312927865";
-                    const serpUrl = `https://serpapi.com/search.json?engine=google_maps_reviews&data_id=${dataId}&hl=en&sort_by=newestFirst&api_key=${serpApiKey}`;
-                    
-                    const serpRes = await fetch(serpUrl);
-                    const serpData = await serpRes.json();
-                    
-                    if (serpData && serpData.reviews && serpData.reviews.length > 0) {
-                        googleReviews = serpData.reviews.map(r => ({
-                            reviewId: r.review_id || `scanned-${r.user?.name?.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${loc.id.substring(0,8)}`,
-                            reviewer: { displayName: r.user?.name || 'Anonymous' },
-                            starRating: r.rating ? ({ 1: 'ONE', 2: 'TWO', 3: 'THREE', 4: 'FOUR', 5: 'FIVE' }[Math.round(r.rating)] || 'FIVE') : 'FIVE',
-                            comment: r.snippet || r.comment || '',
-                            hasResponse: Boolean(r.response),
-                            existingReply: r.response?.snippet || r.response?.extracted_snippet?.original || '',
-                            createTime: new Date().toISOString()
-                        }));
-                        console.log(`✅ SerpApi retrieved ${googleReviews.length} live Google Maps reviews for ${businessName}!`);
-                    } else {
-                        console.log(`⚠️ SerpApi returned no reviews, preserving existing DB state.`);
+                const NOW = Date.now();
+                const cacheWindowMs = 2 * 60 * 60 * 1000; // 2 Hours Cache
+                
+                if (global.__lastSerpTime && (NOW - global.__lastSerpTime < cacheWindowMs) && global.__cachedSerpReviews) {
+                    console.log(`⏱️ SerpApi Cache Active (${Math.round((NOW - global.__lastSerpTime)/60000)}m ago). Preserving search quota!`);
+                    googleReviews = global.__cachedSerpReviews;
+                } else {
+                    console.log(`🚀 API Locked. Launching SerpApi Google Live Scout fallback for ${businessName}...`);
+                    try {
+                        const serpApiKey = process.env.SERPAPI_KEY || "7157fa4f16c69e5ebdd6435f5ab36c782748d6a288e79627db7b41b921fc0fa7";
+                        const dataId = "0x8fd506bceca07999:0xf7ce350312927865";
+                        const serpUrl = `https://serpapi.com/search.json?engine=google_maps_reviews&data_id=${dataId}&hl=en&sort_by=newestFirst&api_key=${serpApiKey}`;
+                        
+                        const serpRes = await fetch(serpUrl);
+                        const serpData = await serpRes.json();
+                        
+                        if (serpData && serpData.reviews && serpData.reviews.length > 0) {
+                            googleReviews = serpData.reviews.map(r => ({
+                                reviewId: r.review_id || `scanned-${r.user?.name?.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${loc.id.substring(0,8)}`,
+                                reviewer: { displayName: r.user?.name || 'Anonymous' },
+                                starRating: r.rating ? ({ 1: 'ONE', 2: 'TWO', 3: 'THREE', 4: 'FOUR', 5: 'FIVE' }[Math.round(r.rating)] || 'FIVE') : 'FIVE',
+                                comment: r.snippet || r.comment || '',
+                                hasResponse: Boolean(r.response),
+                                existingReply: r.response?.snippet || r.response?.extracted_snippet?.original || '',
+                                createTime: new Date().toISOString()
+                            }));
+                            global.__lastSerpTime = NOW;
+                            global.__cachedSerpReviews = googleReviews;
+                            console.log(`✅ SerpApi retrieved ${googleReviews.length} live Google Maps reviews for ${businessName}! Cached for 2h.`);
+                        } else {
+                            console.log(`⚠️ SerpApi returned no reviews, preserving existing DB state.`);
+                        }
+                    } catch (serpErr) {
+                        console.error(`❌ SerpApi live fetch error for ${businessName}:`, serpErr.message);
                     }
-                } catch (serpErr) {
-                    console.error(`❌ SerpApi live fetch error for ${businessName}:`, serpErr.message);
                 }
             }
             
