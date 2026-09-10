@@ -161,20 +161,29 @@ router.post('/', async (req, res) => {
 router.post('/:id/regenerate', async (req, res) => {
     const { id } = req.params;
     try {
-        // 1. Fetch current review details and location settings
+        // 1. Resolve review by UUID, google_review_id, or partial match
+        const reviewRecord = await getReviewWithLocation(id);
+        if (!reviewRecord) {
+            console.error(`❌ Review not found for identifier: ${id}`);
+            return res.status(404).json({ error: `Review '${id}' not found` });
+        }
+
+        const realId = reviewRecord.id;
+
+        // 2. Fetch comment, rating & location settings
         const { data: rev, error: revError } = await supabase
             .from('reviews')
             .select('comment, rating, location_id, locations(business_name, tone_preference)')
-            .eq('id', id)
+            .eq('id', realId)
             .single();
         
-        if (revError || !rev) throw new Error('Review not found');
+        if (revError || !rev) throw new Error('Could not fetch review details');
 
         const businessName = rev.locations?.business_name || 'Our Business';
         const tonePreference = rev.locations?.tone_preference || 'Professional';
 
-        // 2. Generate a fresh draft with higher temperature (randomness)
-        console.log(`🔄 Generating fresh AI draft for "${businessName}"...`);
+        // 3. Generate a fresh draft
+        console.log(`🔄 Generating fresh AI draft for review ${realId} ("${businessName}")...`);
         const newDraft = await draftReply(
             rev.comment || '', 
             rev.rating || 5, 
@@ -183,28 +192,24 @@ router.post('/:id/regenerate', async (req, res) => {
             0.7
         );
 
-        if (!newDraft) {
-            console.error('❌ AI failed to generate a reply.');
-            return res.status(500).json({ error: 'AI failed to generate a reply' });
-        }
+        console.log(`✅ New draft created: "${newDraft?.substring(0, 30)}..."`);
 
-        console.log(`✅ New draft created: "${newDraft.substring(0, 30)}..."`);
-
-        // 3. Update the database
+        // 4. Update the database
         const { data: updated, error: updateError } = await supabase
             .from('reviews')
             .update({ drafted_reply: newDraft })
-            .eq('id', id)
-            .select('*')
-            .single();
+            .eq('id', realId)
+            .select('*');
         
         if (updateError) {
             console.error('❌ Database update failed:', updateError.message);
             throw updateError;
         }
 
-        console.log('✨ Dashboard updated successfully.');
-        res.json(updated);
+        const updatedReview = updated?.[0] || { id: realId, drafted_reply: newDraft };
+
+        console.log('✨ Review regenerated successfully.');
+        res.json(updatedReview);
     } catch (err) {
         console.error('❌ Regeneration failed:', err.message);
         res.status(500).json({ error: err.message });
