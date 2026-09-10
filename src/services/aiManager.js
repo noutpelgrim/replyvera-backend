@@ -70,20 +70,50 @@ You must strictly adhere to these safety constraints:
 ${customInstructions ? `Strictly follow these custom instructions from the business owner:\n${customInstructions}` : ''}
 `;
 
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o',
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Customer left a ${rating}-star review: "${reviewText}"` }
-            ],
-            temperature: temperature, // Using dynamic temperature
-            max_tokens: 150,
-        });
+        let reply = null;
 
-        const reply = response.choices[0]?.message?.content?.trim();
-        return reply || null;
+        // 1. Try gpt-4o-mini first
+        try {
+            const response = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: `Customer left a ${rating}-star review: "${reviewText}"` }
+                ],
+                temperature: temperature,
+                max_tokens: 200,
+            });
+            reply = response.choices[0]?.message?.content?.trim();
+        } catch (gptErr) {
+            console.warn('⚠️ Primary gpt-4o-mini failed, trying gpt-4o:', gptErr.message);
+            try {
+                const response4o = await openai.chat.completions.create({
+                    model: 'gpt-4o',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: `Customer left a ${rating}-star review: "${reviewText}"` }
+                    ],
+                    temperature: temperature,
+                    max_tokens: 200,
+                });
+                reply = response4o.choices[0]?.message?.content?.trim();
+            } catch (err4o) {
+                console.error('❌ OpenAI API call failed completely:', err4o.message);
+            }
+        }
+
+        if (reply) return reply;
+
+        // 2. High-quality smart fallback if OpenAI API is temporarily unreachable or quota exceeded
+        console.warn('⚡ Using smart template fallback for review draft generation...');
+        if (rating >= 4) {
+            return `Thank you so much for your ${rating}-star review! We truly appreciate your feedback for ${businessName} and look forward to serving you again soon.`;
+        } else {
+            return `Thank you for sharing your feedback with ${businessName}. We take your comments seriously and are constantly working to improve our service. Please feel free to contact management directly so we can address your concerns.`;
+        }
+
     } catch (error) {
-        console.error('Error connecting to OpenAI:', error);
-        return null;
+        console.error('Error in draftReply:', error);
+        return `Thank you for your review of ${businessName}. We appreciate your feedback!`;
     }
 }
