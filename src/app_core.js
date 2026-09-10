@@ -37,8 +37,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Main Auth Routes
+// Main Auth Routes (support both /auth and /api/auth)
 app.use('/auth', authRoutes);
+app.use('/api/auth', authRoutes);
 
 // Google Sync & Discovery Routes
 app.use('/google', googleRoutes);

@@ -4,11 +4,11 @@ import { supabase } from '../db/index.js';
 
 const router = express.Router();
 
-const getOAuth2Client = () => {
+const getOAuth2Client = (redirectUriOverride = null) => {
     return new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET || process.env.G_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI || 'https://replyvera-backend-production.up.railway.app/api/auth/google/callback'
+        redirectUriOverride || process.env.GOOGLE_REDIRECT_URI || 'https://replyvera-backend-production.up.railway.app/api/auth/google/callback'
     );
 };
 
@@ -22,7 +22,11 @@ const SCOPES = [
 
 router.get('/google', (req, res) => {
     const { email } = req.query;
-    const oauth2Client = getOAuth2Client();
+    const host = req.get('host');
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const dynamicRedirectUri = `${protocol}://${host}${req.baseUrl}/google/callback`;
+
+    const oauth2Client = getOAuth2Client(dynamicRedirectUri);
     const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES,
@@ -35,12 +39,48 @@ router.get('/google', (req, res) => {
 router.get('/google/callback', async (req, res) => {
     const { code, state } = req.query;
     try {
-        const oauth2Client = getOAuth2Client();
-        const { tokens } = await oauth2Client.getToken(code);
-        oauth2Client.setCredentials(tokens);
+        const host = req.get('host');
+        const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+        const dynamicCallbackUrl = `${protocol}://${host}${req.baseUrl}${req.path}`;
+
+        const candidateUris = [
+            dynamicCallbackUrl,
+            process.env.GOOGLE_REDIRECT_URI,
+            `https://${host}/auth/google/callback`,
+            `https://${host}/api/auth/google/callback`,
+            'https://replyvera-backend-production.up.railway.app/auth/google/callback',
+            'https://replyvera-backend-production.up.railway.app/api/auth/google/callback',
+            'https://api.replyvera.com/api/auth/google/callback',
+            'https://api.replyvera.com/auth/google/callback',
+            'https://replyvera-backend.onrender.com/auth/google/callback'
+        ].filter(Boolean);
+
+        let tokens = null;
+        let activeOAuth2Client = null;
+        let lastError = null;
+
+        for (const uri of candidateUris) {
+            try {
+                const client = getOAuth2Client(uri);
+                const tokenRes = await client.getToken(code);
+                tokens = tokenRes.tokens;
+                if (tokens && tokens.access_token) {
+                    activeOAuth2Client = client;
+                    break;
+                }
+            } catch (err) {
+                lastError = err;
+            }
+        }
+
+        if (!tokens || !tokens.access_token) {
+            console.error('Failed to retrieve tokens with candidate URIs:', lastError);
+            throw lastError || new Error('Token exchange failed');
+        }
+
+        activeOAuth2Client.setCredentials(tokens);
 
         // We use the email passed back in 'state' (from our dashboard)
-        // rather than the email returned by Google info.
         const email = state;
 
         if (!email) {
@@ -72,7 +112,7 @@ router.get('/google/callback', async (req, res) => {
                     user_id: userId,
                     access_token,
                     refresh_token,
-                    expiry_date: expiry_date.toString()
+                    expiry_date: expiry_date ? expiry_date.toString() : (Date.now() + 3600 * 1000).toString()
                 }]);
                 
             if (insertError) throw insertError;
@@ -82,7 +122,7 @@ router.get('/google/callback', async (req, res) => {
                 .from('oauth_tokens')
                 .update({ 
                     access_token, 
-                    expiry_date: expiry_date.toString() 
+                    expiry_date: expiry_date ? expiry_date.toString() : (Date.now() + 3600 * 1000).toString()
                 })
                 .eq('user_id', userId);
                 
@@ -96,7 +136,7 @@ router.get('/google/callback', async (req, res) => {
         res.redirect(dashboardUrl);
     } catch (error) {
         console.error('Error during Google Auth Callback:', error);
-        res.status(500).send('Authentication failed');
+        res.status(500).send(`Authentication failed: ${error.message || 'Unknown error'}`);
     }
 });
 
