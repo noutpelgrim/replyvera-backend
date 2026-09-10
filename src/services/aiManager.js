@@ -7,21 +7,57 @@ const openai = new OpenAI({
     apiKey: process.env.AI_KEY || process.env.OPENAI_API_KEY,
 });
 
+function getSmartFallbackReply(reviewText, rating, businessName, tonePreference) {
+    const text = (reviewText || '').toLowerCase();
+    
+    // Keywords for language detection
+    const esKeywords = ['el', 'la', 'los', 'las', 'muy', 'bonito', 'excelente', 'habitacion', 'habitación', 'lugar', 'gracias', 'atentos', 'bueno', 'ducha', 'atención', 'habitación'];
+    const nlKeywords = ['het', 'de', 'een', 'van', 'mooi', 'geweldig', 'bedankt', 'fijn', 'kamers', 'vriendelijk', 'personeel', 'locatie', 'super'];
+    const deKeywords = ['das', 'die', 'der', 'ein', 'schön', 'sehr', 'danke', 'personal', 'zimmer', 'gut', 'tolle'];
+    const frKeywords = ['le', 'la', 'les', 'un', 'une', 'très', 'merci', 'super', 'chambre', 'bon', 'excellent'];
+
+    let lang = 'en';
+    if (esKeywords.some(w => text.includes(w))) lang = 'es';
+    else if (nlKeywords.some(w => text.includes(w))) lang = 'nl';
+    else if (deKeywords.some(w => text.includes(w))) lang = 'de';
+    else if (frKeywords.some(w => text.includes(w))) lang = 'fr';
+
+    if (lang === 'es') {
+        return rating >= 4
+            ? `¡Muchas gracias por tu reseña de ${rating} estrellas! Nos alegra mucho saber que disfrutaste de tu estancia en ${businessName}. ¡Esperamos verte pronto de nuevo!`
+            : `Muchas gracias por compartir tus comentarios sobre ${businessName}. Tomamos muy en cuenta tu opinión y nos gustaría saber cómo mejorar. No dudes en contactar con dirección directamente.`;
+    }
+
+    if (lang === 'nl') {
+        return rating >= 4
+            ? `Hartelijk dank voor jouw ${rating}-sterren review! We stellen je feedback voor ${businessName} zeer op prijs en hopen je snel weer te mogen verwelkomen.`
+            : `Bedankt voor het delen van je ervaring bij ${businessName}. We nemen je feedback serieus en willen graag weten hoe we dit kunnen verbeteren. Neem gerust rechtstreeks contact met ons op.`;
+    }
+
+    if (lang === 'de') {
+        return rating >= 4
+            ? `Vielen Dank für deine ${rating}-Sterne-Bewertung! Wir freuen uns sehr über dein Feedback für ${businessName} und hoffen, dich bald wieder begrüßen zu dürfen.`
+            : `Vielen Dank für deine Rückmeldung zu ${businessName}. Wir nehmen dein Feedback sehr ernst und würden gerne wissen, wie wir uns verbessern können.`;
+    }
+
+    if (lang === 'fr') {
+        return rating >= 4
+            ? `Merci beaucoup pour votre avis ${rating} étoiles ! Nous apprécions énormément vos retours pour ${businessName} et espérons vous revoir très bientôt.`
+            : `Merci d'avoir partagé votre expérience concernant ${businessName}. Nous prenons vos remarques au sérieux et souhaitons savoir comment nous améliorer.`;
+    }
+
+    // Default English
+    return rating >= 4
+        ? `Thank you so much for your ${rating}-star review! We truly appreciate your feedback for ${businessName} and look forward to welcoming you back soon.`
+        : `Thank you for sharing your feedback regarding your experience at ${businessName}. We take your comments seriously and would love to hear how we can improve.`;
+}
+
 /**
  * Drafts a reply to a Google Review with strict safety constraints.
- * @param {string} reviewText - The text of the customer review.
- * @param {number} rating - The star rating (1-5).
- * @param {string} tonePreference - E.g., 'professional', 'casual', 'apologetic'
- * @param {string} businessName - The name of the business
- * @param {number} temperature - Varied randomness (default 0.4)
- * @returns {Promise<string|null>} The drafted reply or null if safety constraints trigger.
  */
 export async function draftReply(reviewText, rating, tonePreference, businessName, temperature = 0.4, customInstructions = '') {
     if (!reviewText || reviewText.trim() === '') {
-        // Simple "Thanks for the X-star rating!" if no text provided
-        return rating >= 4 
-            ? `Thank you so much for the ${rating}-star rating! We appreciate your support.` 
-            : `Thank you for sharing your ${rating}-star rating. We're always trying to improve our service.`;
+        return getSmartFallbackReply(reviewText, rating, businessName, tonePreference);
     }
 
     let actualTone = tonePreference || 'professional and polite';
@@ -98,22 +134,18 @@ ${customInstructions ? `Strictly follow these custom instructions from the busin
                 });
                 reply = response4o.choices[0]?.message?.content?.trim();
             } catch (err4o) {
-                console.error('❌ OpenAI API call failed completely:', err4o.message);
+                console.error('❌ OpenAI API call failed:', err4o.message);
             }
         }
 
         if (reply) return reply;
 
-        // 2. High-quality smart fallback if OpenAI API is temporarily unreachable or quota exceeded
-        console.warn('⚡ Using smart template fallback for review draft generation...');
-        if (rating >= 4) {
-            return `Thank you so much for your ${rating}-star review! We truly appreciate your feedback for ${businessName} and look forward to serving you again soon.`;
-        } else {
-            return `Thank you for sharing your feedback with ${businessName}. We take your comments seriously and are constantly working to improve our service. Please feel free to contact management directly so we can address your concerns.`;
-        }
+        // 2. Multilingual smart fallback if OpenAI API quota is exceeded or unreachable
+        console.warn('⚡ Using multilingual smart fallback for review draft generation...');
+        return getSmartFallbackReply(reviewText, rating, businessName, tonePreference);
 
     } catch (error) {
         console.error('Error in draftReply:', error);
-        return `Thank you for your review of ${businessName}. We appreciate your feedback!`;
+        return getSmartFallbackReply(reviewText, rating, businessName, tonePreference);
     }
 }
