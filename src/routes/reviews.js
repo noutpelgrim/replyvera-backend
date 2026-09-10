@@ -164,19 +164,22 @@ router.post('/:id/regenerate', async (req, res) => {
         // 1. Fetch current review details and location settings
         const { data: rev, error: revError } = await supabase
             .from('reviews')
-            .select('comment, rating, locations(business_name, tone_preference)')
+            .select('comment, rating, location_id, locations(business_name, tone_preference)')
             .eq('id', id)
             .single();
         
         if (revError || !rev) throw new Error('Review not found');
 
+        const businessName = rev.locations?.business_name || 'Our Business';
+        const tonePreference = rev.locations?.tone_preference || 'Professional';
+
         // 2. Generate a fresh draft with higher temperature (randomness)
-        console.log(`🔄 Generating fresh AI draft for "${rev.locations.business_name}"...`);
+        console.log(`🔄 Generating fresh AI draft for "${businessName}"...`);
         const newDraft = await draftReply(
-            rev.comment, 
-            rev.rating, 
-            rev.locations.tone_preference, 
-            rev.locations.business_name,
+            rev.comment || '', 
+            rev.rating || 5, 
+            tonePreference, 
+            businessName,
             0.7
         );
 
@@ -192,7 +195,7 @@ router.post('/:id/regenerate', async (req, res) => {
             .from('reviews')
             .update({ drafted_reply: newDraft })
             .eq('id', id)
-            .select('*, locations(business_name)')
+            .select('*')
             .single();
         
         if (updateError) {
